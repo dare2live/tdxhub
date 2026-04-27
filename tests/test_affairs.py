@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from mootdx.affair import Affair
-from mootdx.financial.financial import Financial
-from mootdx.logger import logger
+from tdxhub.affair import Affair
+from tdxhub.financial.financial import Financial
+from tdxhub.logger import logger
 
 
 @pytest.mark.skip(reason='暂时不做重复测试')

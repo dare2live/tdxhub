@@ -3,13 +3,13 @@
 `reader` 用于读取通达信本地目录里的离线数据文件。和 `quotes` 不同，这条命令不走在线行情服务器，而是直接读本地 `vipdoc` 数据。
 
 ```shell
-python -m mootdx reader --help
+python -m tdxhub reader --help
 ```
 
 当前实际支持的参数如下：
 
 ```shell
-Usage: python -m mootdx reader [OPTIONS]
+Usage: python -m tdxhub reader [OPTIONS]
 
   读取股票本地行情数据.
 
@@ -27,19 +27,19 @@ Options:
 读取日线并导出：
 
 ```shell
-python -m mootdx reader --tdxdir ../fixtures -s 600000 -a daily -o daily.csv
+python -m tdxhub reader --tdxdir ../fixtures -s 600000 -a daily -o daily.csv
 ```
 
 读取一分钟线：
 
 ```shell
-python -m mootdx reader --tdxdir ../fixtures -s 600000 -a minute -o minute.csv
+python -m tdxhub reader --tdxdir ../fixtures -s 600000 -a minute -o minute.csv
 ```
 
 读取五分钟线：
 
 ```shell
-python -m mootdx reader --tdxdir ../fixtures -s 600000 -a fzline -o fzline.csv
+python -m tdxhub reader --tdxdir ../fixtures -s 600000 -a fzline -o fzline.csv
 ```
 
 如果你的项目需要批量离线读取多个本地文件，更推荐直接调用 `Reader.factory(...)`，而不是循环 shell 调这条命令。

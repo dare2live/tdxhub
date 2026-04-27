@@ -5,8 +5,8 @@ import json
 
 from click.testing import CliRunner
 
-server_module = importlib.import_module('mootdx.server')
-cli_module = importlib.import_module('mootdx.__main__')
+server_module = importlib.import_module('tdxhub.server')
+cli_module = importlib.import_module('tdxhub.__main__')
 
 
 CONNECT_CFG_SAMPLE = """[USER]

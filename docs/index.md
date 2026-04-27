@@ -4,7 +4,7 @@ tdxhub 是当前维护中的通达信数据接入层仓库，基于上游 mootdx
 
 - 仓库地址: [https://github.com/dare2live/tdxhub](https://github.com/dare2live/tdxhub)
 - 上游来源: [https://github.com/mootdx/mootdx](https://github.com/mootdx/mootdx)
-- Python 包名: `mootdx`
+- Python 包名: `tdxhub`
 - 当前版本: `0.12.0`
 - Python 版本: `3.9+`
 
@@ -14,11 +14,11 @@ tdxhub 是当前维护中的通达信数据接入层仓库，基于上游 mootdx
 - 为实际项目提供稳定、可维护的接入层，而不是仅保留上游镜像
 - 保持历史导入路径兼容，避免下游项目大面积改造
 
-注意：仓库名是 `tdxhub`，但为了兼容既有代码，导入路径和命令行入口仍然保留为 `mootdx`。
+注意：仓库名是 `tdxhub`，但为了兼容既有代码，导入路径和命令行入口已重命名为 `tdxhub`。
 
 ```python
-from mootdx.quotes import Quotes
-from mootdx.affair import Affair
+from tdxhub.quotes import Quotes
+from tdxhub.affair import Affair
 ```
 
 ## 当前能力范围

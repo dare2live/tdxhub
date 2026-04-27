@@ -2,7 +2,7 @@ import builtins
 
 import pytest
 
-from mootdx.exceptions import MootdxModuleNotFoundError
+from tdxhub.exceptions import TdxhubModuleNotFoundError
 
 
 def test_holidays_missing_racer_dependency_message(monkeypatch):
@@ -15,9 +15,9 @@ def test_holidays_missing_racer_dependency_message(monkeypatch):
 
     monkeypatch.setattr(builtins, '__import__', _fake_import)
 
-    from mootdx.utils.holiday import holidays
+    from tdxhub.utils.holiday import holidays
 
-    with pytest.raises(MootdxModuleNotFoundError) as exc:
+    with pytest.raises(TdxhubModuleNotFoundError) as exc:
         holidays()
 
     message = str(exc.value)

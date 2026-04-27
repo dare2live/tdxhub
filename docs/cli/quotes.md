@@ -5,19 +5,19 @@
 可以在仓库根目录直接运行：
 
 ```shell
-python -m mootdx quotes --help
+python -m tdxhub quotes --help
 ```
 
 安装后也可以使用：
 
 ```shell
-mootdx quotes --help
+tdxhub quotes --help
 ```
 
 当前实际支持的参数如下：
 
 ```shell
-Usage: python -m mootdx quotes [OPTIONS]
+Usage: python -m tdxhub quotes [OPTIONS]
 
   读取股票在线行情数据.
 
@@ -42,13 +42,13 @@ Options:
 读取日线并直接打印：
 
 ```shell
-python -m mootdx quotes -s 600036 -a daily
+python -m tdxhub quotes -s 600036 -a daily
 ```
 
 读取一分钟线并写入文件：
 
 ```shell
-python -m mootdx quotes -s 600036 -a minute -o minute.csv
+python -m tdxhub quotes -s 600036 -a minute -o minute.csv
 ```
 
 如果你需要批量获取多只股票实时快照，优先使用 Python API 里的 `Quotes.quotes()`，而不是依赖这条 CLI。

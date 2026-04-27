@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "mootdx"
+name = "tdxhub"
 version = "0.12.0"
 description = "通达信全量数据接入层 — 沪深A股行情/财务/板块/除权 + 期货/外汇扩展市场"
 authors = ["bopo <ibopo@126.com>"]
@@ -22,7 +22,7 @@ classifiers = [
 
 
 [tool.poetry.scripts]
-mootdx = "mootdx.__main__:entry"
+tdxhub = "tdxhub.__main__:entry"
 
 
 [tool.poetry.dependencies]
@@ -64,7 +64,7 @@ changelog_incremental = true
 update_changelog_on_bump = true
 version_provider = "poetry"
 version_files = [
-    "mootdx/__init__.py:__version__",
+    "tdxhub/__init__.py:__version__",
 ]
 
 
@@ -73,7 +73,7 @@ venv = "poetry install --sync --extras cli --extras racer"
 lock = "poetry lock --no-update"
 
 test = "poetry run pytest"
-lint = "ruff check ./mootdx/*.py"
+lint = "ruff check ./tdxhub/*.py"
 
 dist = "poetry build -v"
 bump = "cz bump --yes -ch -cc --increment"

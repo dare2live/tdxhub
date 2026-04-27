@@ -6,7 +6,7 @@ from unittest import mock
 import freezegun
 import pandas as pd
 
-from mootdx.cache import file_cache
+from tdxhub.cache import file_cache
 
 NUM_SAMPLES = 10
 DUMMY_TIME = datetime.datetime(2012, 1, 1, tzinfo=datetime.timezone.utc)

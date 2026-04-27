@@ -1,8 +1,8 @@
 import unittest
 from pathlib import Path
 
-from mootdx import get_config_path
-from mootdx.utils.adjust import get_xdxr
+from tdxhub import get_config_path
+from tdxhub.utils.adjust import get_xdxr
 
 
 class XDXRTestCase(unittest.TestCase):

@@ -1,8 +1,8 @@
-from mootdx.exceptions import FileNeedRefresh
-from mootdx.exceptions import MootdxDependencyException
-from mootdx.exceptions import MootdxException
-from mootdx.exceptions import MootdxModuleNotFoundError
-from mootdx.exceptions import MootdxValidationException
+from tdxhub.exceptions import FileNeedRefresh
+from tdxhub.exceptions import MootdxDependencyException
+from tdxhub.exceptions import MootdxException
+from tdxhub.exceptions import TdxhubModuleNotFoundError
+from tdxhub.exceptions import MootdxValidationException
 
 
 def test_exception_hierarchy_and_metadata():
@@ -24,7 +24,7 @@ def test_validation_exception_inherits_base_and_value_error():
 
 
 def test_dependency_exception_hierarchy():
-    err = MootdxModuleNotFoundError('missing mini-racer')
+    err = TdxhubModuleNotFoundError('missing mini-racer')
 
     assert isinstance(err, MootdxDependencyException)
     assert isinstance(err, ModuleNotFoundError)

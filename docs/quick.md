@@ -1,17 +1,17 @@
 # 快速上手
 
-这份快速上手以当前 fork 的真实状态为准：仓库名是 `tdxhub`，导入路径仍然是 `mootdx`。
+这份快速上手以当前 fork 的真实状态为准：仓库名是 `tdxhub`，导入路径已重命名为 `tdxhub`。
 
 ## 选择较优服务器
 
 ```shell
-mootdx bestip -l 5
+tdxhub bestip -l 5
 ```
 
 ## 在线行情读取
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std', multithread=True, heartbeat=True, bestip=True, timeout=15)
 
@@ -38,13 +38,13 @@ client.transactions(symbol='600036', date='20240201', start=0, offset=10)
 如果你本机已经安装通达信客户端，也可以先导入它的服务器列表再测速：
 
 ```shell
-mootdx bestip -c /path/to/connect.cfg -l 10
+tdxhub bestip -c /path/to/connect.cfg -l 10
 ```
 
 ## 扩展市场
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 ext_client = Quotes.factory(market='ext')
 
@@ -55,7 +55,7 @@ ext_client.bars(market=31, symbol='00020', frequency=9)
 ## 财务文件读取
 
 ```python
-from mootdx.affair import Affair
+from tdxhub.affair import Affair
 
 files = Affair.files()
 filename = files[0]['filename']
@@ -69,7 +69,7 @@ df = Affair.parse(downdir='tmp', filename=filename, columns=('code', 'report_dat
 ## 离线数据读取
 
 ```python
-from mootdx.reader import Reader
+from tdxhub.reader import Reader
 
 reader = Reader.factory(market='std', tdxdir='C:/new_tdx')
 
@@ -82,4 +82,4 @@ fzline = reader.fzline(symbol='600036')
 
 - 行情接口说明见 `api/quote1.md` 与 `api/quote2.md`
 - 财务文件说明见 `api/affair.md`
-- 如果你要在项目里统一接入，建议把第三方导入再封装一层，而不是在业务代码里到处直接 `import mootdx`
+- 如果你要在项目里统一接入，建议把第三方导入再封装一层，而不是在业务代码里到处直接 `import tdxhub`

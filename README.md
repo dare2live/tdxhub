@@ -8,16 +8,16 @@ tdxhub 是一个基于 mootdx 的维护中 fork，定位是通达信数据接入
 
 - 仓库地址: <https://github.com/dare2live/tdxhub>
 - 上游来源: <https://github.com/mootdx/mootdx>
-- Python 包名: `mootdx`
+- Python 包名: `tdxhub`
 - 当前版本: `0.12.0`
 - Python 版本: `3.9+`
 - 开源协议: MIT
 
-注意: 仓库名是 tdxhub，但为了兼容既有项目，导入路径和命令行入口仍然保留为 `mootdx`。
+注意: 仓库名是 tdxhub，但为了兼容既有项目，导入路径和命令行入口仍然保留为 `tdxhub`。
 
 ```python
-from mootdx.quotes import Quotes
-from mootdx.affair import Affair
+from tdxhub.quotes import Quotes
+from tdxhub.affair import Affair
 ```
 
 ## 当前能力范围
@@ -55,7 +55,7 @@ from mootdx.affair import Affair
 仓库内置了能力清单模块，便于直接查看当前封装了哪些通达信能力:
 
 ```python
-from mootdx.capabilities import CAPABILITIES, summary
+from tdxhub.capabilities import CAPABILITIES, summary
 
 summary()
 print(CAPABILITIES['std_quotes'])
@@ -74,19 +74,19 @@ pip install -U "git+https://github.com/dare2live/tdxhub.git"
 如果需要命令行工具：
 
 ```bash
-pip install -U "mootdx[cli] @ git+https://github.com/dare2live/tdxhub.git"
+pip install -U "tdxhub[cli] @ git+https://github.com/dare2live/tdxhub.git"
 ```
 
 如果需要 holiday / JS 扩展运行时：
 
 ```bash
-pip install -U "mootdx[racer] @ git+https://github.com/dare2live/tdxhub.git"
+pip install -U "tdxhub[racer] @ git+https://github.com/dare2live/tdxhub.git"
 ```
 
 如果两者都需要：
 
 ```bash
-pip install -U "mootdx[cli,racer] @ git+https://github.com/dare2live/tdxhub.git"
+pip install -U "tdxhub[cli,racer] @ git+https://github.com/dare2live/tdxhub.git"
 ```
 
 ### 本地开发安装
@@ -108,7 +108,7 @@ poetry install --extras cli --extras racer
 ### 在线行情
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std', multithread=True, heartbeat=True)
 
@@ -135,7 +135,7 @@ client.transactions(symbol='600036', date='20240201', start=0, offset=10)
 ### 扩展市场
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 ext_client = Quotes.factory(market='ext')
 
@@ -149,7 +149,7 @@ ext_client.bars(market=31, symbol='00020', frequency=9)
 ### 财务文件
 
 ```python
-from mootdx.affair import Affair
+from tdxhub.affair import Affair
 
 files = Affair.files()
 filename = files[0]['filename']
@@ -161,7 +161,7 @@ df = Affair.parse(downdir='tmp', filename=filename)
 ### 离线数据读取
 
 ```python
-from mootdx.reader import Reader
+from tdxhub.reader import Reader
 
 reader = Reader.factory(market='std', tdxdir='C:/new_tdx')
 daily = reader.daily(symbol='600036')
@@ -171,24 +171,24 @@ fzline = reader.fzline(symbol='600036')
 
 ## 命令行
 
-安装后可以直接使用 `mootdx` 命令:
+安装后可以直接使用 `tdxhub` 命令:
 
 ```bash
-mootdx --help
-mootdx bestip -l 5
-mootdx bestip -c /path/to/connect.cfg -l 10
-mootdx quotes -s 600036 -a daily
-mootdx affair -l
-mootdx affair -f gpcw20241231.zip -d output
+tdxhub --help
+tdxhub bestip -l 5
+tdxhub bestip -c /path/to/connect.cfg -l 10
+tdxhub quotes -s 600036 -a daily
+tdxhub affair -l
+tdxhub affair -f gpcw20241231.zip -d output
 ```
 
-如果你需要先选择较优行情节点，可以先运行 `mootdx bestip`。
+如果你需要先选择较优行情节点，可以先运行 `tdxhub bestip`。
 
 ## 与上游的关系
 
 - 本仓库基于 mootdx 演进，但不再照搬上游 README、官网和镜像链接。
 - 仓库名改为 tdxhub，用于表达“通达信数据接入层”的定位。
-- 包名保持 `mootdx`，这是兼容性选择，不代表当前 GitHub 仓库仍是上游项目本身。
+- 包名保持 `tdxhub`，这是兼容性选择，不代表当前 GitHub 仓库仍是上游项目本身。
 - 文档优先描述这个 fork 当前已经实现并正在维护的内容。
 
 ## 问题与贡献

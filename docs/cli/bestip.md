@@ -3,13 +3,13 @@
 当前 fork 的 CLI 既可以在安装后使用 `mootdx bestip`，也可以在仓库根目录下直接运行：
 
 ```shell
-python -m mootdx bestip --help
+python -m tdxhub bestip --help
 ```
 
 当前实际支持的参数如下：
 
 ```shell
-Usage: python -m mootdx bestip [OPTIONS]
+Usage: python -m tdxhub bestip [OPTIONS]
 
   测试行情服务器.
 
@@ -26,19 +26,19 @@ Options:
 显示最快 5 条线路并打印更详细日志：
 
 ```shell
-python -m mootdx bestip -l 5 -v
+python -m tdxhub bestip -l 5 -v
 ```
 
 安装后也可以写成：
 
 ```shell
-mootdx bestip -l 5 -v
+tdxhub bestip -l 5 -v
 ```
 
 如果你本机已经有通达信客户端，也可以直接导入它的 `connect.cfg` 再测速：
 
 ```shell
-python -m mootdx bestip -c /path/to/connect.cfg -l 10
+python -m tdxhub bestip -c /path/to/connect.cfg -l 10
 ```
 
 ## 当前行为说明

@@ -1,10 +1,10 @@
 import pandas as pd
 import pytest
 
-from mootdx.quotes import BaseQuotes
-from mootdx.quotes import check_empty
-from mootdx.quotes import ExtQuotes
-from mootdx.quotes import valid_server
+from tdxhub.quotes import BaseQuotes
+from tdxhub.quotes import check_empty
+from tdxhub.quotes import ExtQuotes
+from tdxhub.quotes import valid_server
 
 
 class _DummyTransport:

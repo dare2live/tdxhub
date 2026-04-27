@@ -1,6 +1,6 @@
 import unittest
 
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 
 class TestAdjust2(unittest.TestCase):

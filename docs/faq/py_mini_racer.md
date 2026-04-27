@@ -19,13 +19,13 @@
 
 - 优先按项目安装页执行当前 fork 的安装方式。
 - 如果你的环境里仍然报 `py_mini_racer` 相关错误，通常说明你参考了旧版本文档、旧缓存环境，或者混用了上游说明。
-- 在当前 fork 语境下，应优先安装 `mootdx[racer]` 或底层包 `mini-racer`；运行时报错里如果出现 `py_mini_racer`，那通常只是导入模块名，而不代表你应该去安装旧包名。
+- 在当前 fork 语境下，应优先安装 `tdxhub[racer]` 或底层包 `mini-racer`；运行时报错里如果出现 `py_mini_racer`，那通常只是导入模块名，而不代表你应该去安装旧包名。
 
 ## 排查顺序
 
 1. 确认当前仓库是 `tdxhub`，不是上游历史镜像。
 2. 确认你安装的是当前 fork，而不是旧 wheel 或旧缓存。
-3. 确认缺的是 `mootdx[racer]` / `mini-racer`，而不是被导入名 `py_mini_racer` 误导。
+3. 确认缺的是 `tdxhub[racer]` / `mini-racer`，而不是被导入名 `py_mini_racer` 误导。
 4. 重新核对安装页里的依赖说明，不要继续照搬历史 FAQ。
 
 如果你只是使用 `Quotes`、`Affair`、`Reader` 这些主能力，优先先验证主流程是否可用，再决定是否需要额外安装公式相关依赖。

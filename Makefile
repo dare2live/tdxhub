@@ -24,7 +24,7 @@ endef
 export PRINT_HELP_PYSCRIPT
 
 BROWSER := python -c "$$BROWSER_PYSCRIPT"
-VERSION := `poetry run python -m mootdx.version`
+VERSION := `poetry run python -m tdxhub.version`
 
 help:
 	@python -c "$$PRINT_HELP_PYSCRIPT" < $(MAKEFILE_LIST)
@@ -61,7 +61,7 @@ lint:
 	flake8 --max-line-length=200
 
 cov: clean-test
-	poetry run py.test -v --cov=mootdx --cov-report=html
+	poetry run py.test -v --cov=tdxhub --cov-report=html
 
 fmt:
 	black -l 120 -t py36 -t py37 -t py38 -t py39 -t py310 .
@@ -76,7 +76,7 @@ docs:
 	poetry run mkdocs serve -a 0.0.0.0:8000
 
 archive: clean
-	git archive --format zip --output ../mootdx-master.zip master
+	git archive --format zip --output ../tdxhub-master.zip master
 
 #poetry run python setup.py sdist
 #poetry run python setup.py bdist_wheel
@@ -107,7 +107,7 @@ hook:
 	curl -i -X POST https://readthedocs.org/api/v2/webhook/mootdx/247616/ -d '{"token": "3a3340e27ddf6996e37f83efc8942f9397108d48"}' -H "Content-Type: application/json"
 
 bestip:
-	@poetry run python -m mootdx bestip -v
+	@poetry run python -m tdxhub bestip -v
 
 # https://commitizen-tools.github.io/commitizen/
 # pip install commitizen -i https://pypi.tuna.tsinghua.edu.cn/simple
@@ -122,8 +122,8 @@ publish: clean ## 打包并发布
 docker: # build docker image of CI/CD.
 	mkdir -p .temp
 	poetry export --without-hashes --with test -E all -o .temp/requirements.txt
-	docker build . -t mootdx:build
-	docker-squash mootdx:build -t mootdx:squash
+	docker build . -t tdxhub:build
+	docker-squash tdxhub:build -t tdxhub:squash
 
 # https://commitizen-tools.github.io/commitizen/
 # https://keepachangelog.com/zh-CN/
