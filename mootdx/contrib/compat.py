@@ -1,13 +1,13 @@
 import socket
 import threading
 
-from tdxpy.base_socket_client import BaseSocketClient
-from tdxpy.base_socket_client import CONNECT_TIMEOUT
-from tdxpy.base_socket_client import TrafficStatSocket
-from tdxpy.constants import SECURITY_EXCHANGE
-from tdxpy.exceptions import TdxConnectionError
-from tdxpy.heartbeat import HeartBeatThread
-from tdxpy.reader import TdxDailyBarReader
+from mootdx.protocol.base_socket_client import BaseSocketClient
+from mootdx.protocol.base_socket_client import CONNECT_TIMEOUT
+from mootdx.protocol.base_socket_client import TrafficStatSocket
+from mootdx.protocol.constants import SECURITY_EXCHANGE
+from mootdx.protocol.exceptions import TdxConnectionError
+from mootdx.protocol.heartbeat import HeartBeatThread
+from mootdx.protocol.reader import TdxDailyBarReader
 
 from mootdx.logger import logger
 

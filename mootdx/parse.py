@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
-from tdxpy.reader import BlockReader
+from mootdx.protocol.reader import BlockReader
 
 from mootdx.consts import TYPE_FLATS
 from mootdx.consts import TYPE_GROUP

@@ -6,9 +6,9 @@ from typing import Union
 
 import pandas
 import pandas as pd
-from tdxpy.exceptions import ValidationException
-from tdxpy.exhq import TdxExHq_API
-from tdxpy.hq import TdxHq_API
+from mootdx.protocol.exceptions import ValidationException
+from mootdx.protocol.exhq import TdxExHq_API
+from mootdx.protocol.hq import TdxHq_API
 from tenacity import retry
 from tenacity import retry_if_exception_type
 from tenacity import retry_if_result

@@ -2,7 +2,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from tdxpy.reader import CustomerBlockReader
+from mootdx.protocol.reader import CustomerBlockReader
 
 from mootdx.consts import TYPE_FLATS
 from mootdx.consts import TYPE_GROUP

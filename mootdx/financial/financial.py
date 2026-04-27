@@ -7,7 +7,7 @@ from struct import calcsize
 from struct import unpack
 
 import pandas as pd
-from tdxpy.hq import TdxHq_API
+from mootdx.protocol.hq import TdxHq_API
 
 from ..logger import logger
 from .base import BaseFinancial
