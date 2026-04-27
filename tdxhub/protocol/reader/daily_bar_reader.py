@@ -77,7 +77,7 @@ class TdxDailyBarReader(BaseReader):
         :return:
         """
         if not Path(filename).is_file():
-            raise TdxFileNotFoundException("no tdx kline data, please check path %s", filename)
+            raise TdxFileNotFoundException(f"no tdx kline data, please check path {filename}")
 
         content = Path(filename).read_bytes()
         content = self.unpack_records("<IIIIIfII", content)
@@ -103,7 +103,7 @@ class TdxDailyBarReader(BaseReader):
         :return:
         """
         if not Path(filename).is_file():
-            raise TdxFileNotFoundException("no tdx kline data, please check path %s", filename)
+            raise TdxFileNotFoundException(f"no tdx kline data, please check path {filename}")
 
         security_type = self.get_security_type(filename)
 

@@ -133,7 +133,8 @@ def check_empty(value: Any) -> bool:
     :param value: 要判断的值
     :return:
     """
-    _empty = value.all().empty if isinstance(value, pd.DataFrame) else not value
+    # 修 (P1): 原 value.all().empty 当 DataFrame 全 NaN 时 .all() 返回 Series 仍非空, 永远 False; 直接看 .empty
+    _empty = value.empty if isinstance(value, pd.DataFrame) else not value
 
     # 判断状态空，则重连接
     if instance and _empty:

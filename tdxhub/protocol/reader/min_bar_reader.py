@@ -40,7 +40,7 @@ class TdxMinBarReader(BaseReader):
         :return:
         """
         if not Path(filename).is_file():
-            raise TdxFileNotFoundException("no tdx kline data, please check path %s", filename)
+            raise TdxFileNotFoundException(f"no tdx kline data, please check path {filename}")
 
         results = []
         content = Path(filename).read_bytes()

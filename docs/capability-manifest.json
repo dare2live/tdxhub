@@ -1,0 +1,213 @@
+{
+  "std_quotes": [
+    {
+      "method": "quotes",
+      "desc": "实时行情快照（五档盘口 + 最新价）",
+      "tdxpy": "TdxHq_API.get_security_quotes",
+      "limits": "单次最多约 80 只股票",
+      "category": "实时数据"
+    },
+    {
+      "method": "bars",
+      "desc": "K线数据（支持 12 种周期: 1m/5m/15m/30m/1h/日/周/月/季/年）",
+      "tdxpy": "TdxHq_API.get_security_bars",
+      "limits": "单次最多 800 根K线",
+      "category": "历史数据"
+    },
+    {
+      "method": "index_bars",
+      "desc": "指数K线数据",
+      "tdxpy": "TdxHq_API.get_index_bars",
+      "limits": "单次最多 800 根K线",
+      "category": "历史数据"
+    },
+    {
+      "method": "stocks",
+      "desc": "股票列表（按市场获取全部证券代码）",
+      "tdxpy": "TdxHq_API.get_security_list",
+      "limits": "每页 1000 条，自动翻页",
+      "category": "基础信息"
+    },
+    {
+      "method": "stock_count",
+      "desc": "市场证券数量",
+      "tdxpy": "TdxHq_API.get_security_count",
+      "limits": "—",
+      "category": "基础信息"
+    },
+    {
+      "method": "minute",
+      "desc": "当日实时分时数据",
+      "tdxpy": "TdxHq_API.get_minute_time_data",
+      "limits": "仅当日",
+      "category": "实时数据"
+    },
+    {
+      "method": "minutes",
+      "desc": "历史分时数据",
+      "tdxpy": "TdxHq_API.get_history_minute_time_data",
+      "limits": "每次一天",
+      "category": "历史数据"
+    },
+    {
+      "method": "transaction",
+      "desc": "当日分笔成交",
+      "tdxpy": "TdxHq_API.get_transaction_data",
+      "limits": "单次最多 2000 条",
+      "category": "实时数据"
+    },
+    {
+      "method": "transactions",
+      "desc": "历史分笔成交",
+      "tdxpy": "TdxHq_API.get_history_transaction_data",
+      "limits": "单次最多 2000 条",
+      "category": "历史数据"
+    },
+    {
+      "method": "xdxr",
+      "desc": "除权除息信息",
+      "tdxpy": "TdxHq_API.get_xdxr_info",
+      "limits": "—",
+      "category": "基础信息"
+    },
+    {
+      "method": "finance",
+      "desc": "个股财务摘要（每股收益/净资产/公积金/市盈率等）",
+      "tdxpy": "TdxHq_API.get_finance_info",
+      "limits": "单只股票",
+      "category": "基本面"
+    },
+    {
+      "method": "k",
+      "desc": "按日期范围获取日K线（自动翻页拼接）",
+      "tdxpy": "TdxHq_API.get_security_bars (组合)",
+      "limits": "内部自动分页",
+      "category": "历史数据"
+    },
+    {
+      "method": "block",
+      "desc": "板块/概念/风格/指数成分信息",
+      "tdxpy": "TdxHq_API.get_and_parse_block_info",
+      "limits": "—",
+      "category": "基础信息"
+    },
+    {
+      "method": "F10C",
+      "desc": "公司 F10 资料目录",
+      "tdxpy": "TdxHq_API.get_company_info_category",
+      "limits": "—",
+      "category": "基本面"
+    },
+    {
+      "method": "F10",
+      "desc": "公司 F10 资料详情（可按标题查询）",
+      "tdxpy": "TdxHq_API.get_company_info_content",
+      "limits": "—",
+      "category": "基本面"
+    }
+  ],
+  "ext_quotes": [
+    {
+      "method": "markets",
+      "desc": "扩展市场列表（期货/外汇/黄金等）",
+      "tdxpy": "TdxExHq_API.get_markets",
+      "limits": "—",
+      "category": "基础信息"
+    },
+    {
+      "method": "instruments / instrument",
+      "desc": "扩展市场合约列表",
+      "tdxpy": "TdxExHq_API.get_instrument_info",
+      "limits": "每页 100 条",
+      "category": "基础信息"
+    },
+    {
+      "method": "quote",
+      "desc": "扩展市场实时报价",
+      "tdxpy": "TdxExHq_API.get_instrument_quote",
+      "limits": "—",
+      "category": "实时数据"
+    },
+    {
+      "method": "bars",
+      "desc": "扩展市场K线",
+      "tdxpy": "TdxExHq_API.get_instrument_bars",
+      "limits": "单次最多 800 根K线",
+      "category": "历史数据"
+    },
+    {
+      "method": "minute",
+      "desc": "扩展市场分时数据",
+      "tdxpy": "TdxExHq_API.get_minute_time_data",
+      "limits": "—",
+      "category": "实时数据"
+    },
+    {
+      "method": "minutes",
+      "desc": "扩展市场历史分时",
+      "tdxpy": "TdxExHq_API.get_history_minute_time_data",
+      "limits": "—",
+      "category": "历史数据"
+    },
+    {
+      "method": "transaction",
+      "desc": "扩展市场分笔成交",
+      "tdxpy": "TdxExHq_API.get_transaction_data",
+      "limits": "—",
+      "category": "实时数据"
+    },
+    {
+      "method": "transactions",
+      "desc": "扩展市场历史分笔",
+      "tdxpy": "TdxExHq_API.get_history_transaction_data",
+      "limits": "—",
+      "category": "历史数据"
+    }
+  ],
+  "affair": [
+    {
+      "method": "Affair.files",
+      "desc": "远端财务文件列表（gpcw 文件清单 + hash）",
+      "tdxpy": "TdxHq_API.get_report_file_by_size",
+      "limits": "连接财务专用服务器 120.76.152.87",
+      "category": "财务数据"
+    },
+    {
+      "method": "Affair.fetch",
+      "desc": "下载财务文件（单个或全部）",
+      "tdxpy": "TdxHq_API.get_report_file_by_size",
+      "limits": "文件约 1-4MB/个",
+      "category": "财务数据"
+    },
+    {
+      "method": "Affair.parse",
+      "desc": "解析 gpcw 财务文件（三大报表 + 机构持仓 + 盈利预测，583 个字段）",
+      "tdxpy": "本地二进制解析",
+      "limits": "—",
+      "category": "财务数据"
+    }
+  ],
+  "reader": [
+    {
+      "method": "Reader.daily",
+      "desc": "读取通达信本地日线文件 (.day)",
+      "tdxpy": "TdxDailyBarReader",
+      "limits": "需本地安装通达信",
+      "category": "离线数据"
+    },
+    {
+      "method": "Reader.minute",
+      "desc": "读取通达信本地分钟文件 (.lc1/.lc5)",
+      "tdxpy": "TdxMinBarReader / TdxLCMinBarReader",
+      "limits": "需本地安装通达信",
+      "category": "离线数据"
+    },
+    {
+      "method": "Reader.fzline",
+      "desc": "读取通达信本地分时线文件",
+      "tdxpy": "TdxMinBarReader",
+      "limits": "需本地安装通达信",
+      "category": "离线数据"
+    }
+  ]
+}
