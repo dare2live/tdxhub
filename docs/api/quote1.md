@@ -11,7 +11,7 @@
 ** 调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std')
 ```
@@ -19,7 +19,7 @@ client = Quotes.factory(market='std')
 ### 其他参数
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std', multithread=True, heartbeat=True, bestip=False, timeout=15)
 # multithread 多线程
@@ -46,7 +46,7 @@ client = Quotes.factory(market='std', multithread=True, heartbeat=True, bestip=F
 **调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std')
 client.quotes(symbol=["000001", "600300"])
@@ -75,7 +75,7 @@ client.quotes(symbol=["000001", "600300"])
 **调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std')
 client.bars(symbol='600036', frequency=9, offset=10)
@@ -96,7 +96,7 @@ client.bars(symbol='600036', adjust='hfq')
 ** 调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 from mootdx import consts
 
 client = Quotes.factory(market='std')
@@ -115,7 +115,7 @@ client.stock_count(market=consts.MARKET_SH)
 ** 调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 from mootdx import consts
 
 client = Quotes.factory(market='std')
@@ -150,8 +150,8 @@ symbol = client.stocks(market=consts.MARKET_SH)
 ** 调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
-from mootdx.consts import MARKET_SH
+from tdxhub.quotes import Quotes
+from tdxhub.consts import MARKET_SH
 
 client = Quotes.factory(market='std')
 client.index(frequency=9, market=MARKET_SH, symbol='000001', start=1, offset=2)
@@ -168,7 +168,7 @@ client.index(frequency=9, market=MARKET_SH, symbol='000001', start=1, offset=2)
 ** 调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std')
 client.minute(symbol='000001')
@@ -185,7 +185,7 @@ client.minute(symbol='000001')
 ** 调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std')
 client.minutes(symbol='000001', date='20171010')
@@ -204,7 +204,7 @@ client.minutes(symbol='000001', date='20171010')
 ** 调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std')
 client.transaction(symbol='600036', start=0, offset=10)
@@ -222,7 +222,7 @@ client.transaction(symbol='600036', start=0, offset=10)
 ** 调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std')
 client.transactions(symbol='000001', start=0, offset=10, date='20170209')
@@ -240,7 +240,7 @@ client.transactions(symbol='000001', start=0, offset=10, date='20170209')
 ** 调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std')
 client.F10C(symbol='000001')
@@ -256,7 +256,7 @@ client.F10C(symbol='000001')
 **调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std')
 client.F10(symbol='000001', name='最新提示')
@@ -273,7 +273,7 @@ client.F10(symbol='000001', name='最新提示')
 ** 调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std')
 client.xdxr(symbol='600036')
@@ -288,7 +288,7 @@ client.xdxr(symbol='600036')
 **调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std')
 client.finance(symbol="600300")
@@ -306,7 +306,7 @@ client.finance(symbol="600300")
 **调用方法：**
 
 ```python
-from mootdx.quotes import Quotes
+from tdxhub.quotes import Quotes
 
 client = Quotes.factory(market='std')
 client.k(symbol="600300", begin="2017-07-03", end="2017-07-10")
