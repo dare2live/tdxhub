@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
@@ -49,6 +50,20 @@ PIPE = "｜"
 TABLE_TOP = re.compile(r"^[┌┬─]+┐\s*$")
 TABLE_MID = re.compile(r"^[├┼─]+┤\s*$")
 TABLE_BOTTOM = re.compile(r"^[└┴─]+┘\s*$")
+
+# Format detection: TDX servers serve F10 in two distinct layouts.
+FORMAT_A_MARKER = ("灵通V9.0", "港澳资讯")
+FORMAT_B_MARKER = "通达信沪深京F10"
+
+
+def detect_f10_format(text: str) -> str:
+    """Return 'a' (灵通V9.0/港澳资讯, fullwidth ｜) or 'b' (通达信沪深京F10, halfwidth │)."""
+
+    if not text:
+        return "a"
+    if FORMAT_B_MARKER in text:
+        return "b"
+    return "a"
 
 PAGE_HEAD_RE = re.compile(
     r"☆股东研究☆\s*◇(?P<code>\S+)\s+(?P<name>\S+)\s*更新日期：(?P<update_date>\d{4}-\d{2}-\d{2})◇"
@@ -1013,7 +1028,7 @@ def parse_research(
     raw hash; the others are the per-section outputs.
     """
 
-    holders, periods = parse_holders(text, symbol=symbol, stock_name=stock_name)
+    holders, periods = parse_holders_auto(text, symbol=symbol, stock_name=stock_name)
     head = PAGE_HEAD_RE.search(text or "")
     page = {
         "stock_code": head.group("code") if head else symbol,
@@ -1033,6 +1048,356 @@ def parse_research(
         "holders": holders,
         "periods": periods,
     }
+
+
+# ---------------------------------------------------------------------------
+# Format B parser (通达信沪深京F10)
+# ---------------------------------------------------------------------------
+
+FORMAT_B_PERIOD_HEAD_RE = re.compile(
+    r"^●(?P<kind>十大流通股东|十大股东)\s*截止日期:(?P<report_date>\d{4}-\d{2}-\d{2})\s*$"
+)
+FORMAT_B_STAT_RE = re.compile(
+    r"前十大(?:流通)?股东累计持有[:：](?P<cum>[\d.,]+(?:亿|万)?)股[,，]"
+    r"累计占(?:流通股|总股本)比[:：](?P<ratio>[\d.,]+)%[,，]"
+    r"较上期变化[:：](?P<delta>-?[\d.,]+(?:亿|万)?)股"
+)
+FORMAT_B_EXIT_HEAD_RE = re.compile(r"较上个报告期退出前十大(?:流通)?股东")
+FORMAT_B_DASH_RE = re.compile(r"^[─\-]+\s*$")
+FORMAT_B_FIELD_HEADER_RE = re.compile(r"^股东名称\s+(股份性质|股东类别)\s")
+FORMAT_B_SHARE_CLASS_INLINE_RE = re.compile(r"(?P<ratio>-?\d+(?:\.\d+)?)\s+(?P<klass>[AHB])股\s*$")
+
+
+def _visual_width(s: str) -> int:
+    return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in s)
+
+
+def _find_visual_col(line: str, target_visual: int) -> int:
+    """Return the char index whose cumulative visual width first reaches ``target_visual``."""
+
+    w = 0
+    for i, c in enumerate(line):
+        if w >= target_visual:
+            return i
+        w += 2 if unicodedata.east_asian_width(c) in ("W", "F") else 1
+    return len(line)
+
+
+def _column_visual_starts(header: str) -> list[int]:
+    """Return visual positions where each header column begins.
+
+    A column boundary is a transition from spaces to non-space characters.
+    """
+
+    starts: list[int] = []
+    in_col = False
+    pos = 0
+    for c in header:
+        if c == " " or c == "\t":
+            in_col = False
+        else:
+            if not in_col:
+                starts.append(pos)
+                in_col = True
+        pos += 2 if unicodedata.east_asian_width(c) in ("W", "F") else 1
+    return starts
+
+
+def _slice_by_visual_cols(line: str, visual_starts: list[int]) -> list[str]:
+    """Slice ``line`` into stripped column substrings at the given visual positions."""
+
+    if not visual_starts:
+        return []
+    char_positions = [_find_visual_col(line, v) for v in visual_starts] + [len(line)]
+    return [line[char_positions[i]:char_positions[i + 1]].strip() for i in range(len(visual_starts))]
+
+
+def _parse_format_b_period_block(
+    lines: list[str], start: int
+) -> tuple[Optional[dict[str, Any]], list[dict[str, Any]], int]:
+    """Parse one ●十大... period (main + exit table). Returns (period_record, holder_records, end_idx)."""
+
+    n = len(lines)
+    head_m = FORMAT_B_PERIOD_HEAD_RE.match(lines[start].strip())
+    if not head_m:
+        return None, [], start + 1
+    kind = head_m.group("kind")
+    holder_set = "free" if kind == "十大流通股东" else "all"
+    period: dict[str, Any] = {
+        "report_date": head_m.group("report_date"),
+        "holder_set": holder_set,
+        "a_share_holder_count_text": None,
+        "a_share_holder_count": None,
+        "avg_float_shares_text": None,
+        "avg_float_shares": None,
+        "cumulative_text": None,
+        "cumulative_shares": None,
+        "cumulative_ratio": None,
+        "delta_vs_prev_text": None,
+        "delta_vs_prev_shares": None,
+    }
+    i = start + 1
+    # Optional stat line ("前十大[流通]股东累计持有:...,累计占...,较上期变化:...")
+    # Some 1H stocks (e.g. 601398) skip this line and jump straight to a
+    # "主要股东持股变动" subtitle — we tolerate either by scanning ahead until
+    # we find the column header. Anything before the header is informational.
+    while i < n and not FORMAT_B_FIELD_HEADER_RE.match(lines[i]):
+        if FORMAT_B_PERIOD_HEAD_RE.match(lines[i].strip()):
+            return period, [], i
+        sm = FORMAT_B_STAT_RE.search(lines[i])
+        if sm:
+            cum_text = sm.group("cum")
+            cum_shares, _ = _to_int_shares(cum_text)
+            delta_text = sm.group("delta")
+            delta_shares, _ = _to_int_shares(delta_text or "")
+            period.update(
+                {
+                    "cumulative_text": cum_text,
+                    "cumulative_shares": cum_shares,
+                    "cumulative_ratio": _to_float(sm.group("ratio")),
+                    "delta_vs_prev_text": delta_text,
+                    "delta_vs_prev_shares": delta_shares,
+                }
+            )
+        i += 1
+    if i >= n:
+        return period, [], i
+    header_line = lines[i]
+    col_starts = _column_visual_starts(header_line)
+    headers = _slice_by_visual_cols(header_line, col_starts)
+    i += 1
+    # opening dash line
+    if i < n and FORMAT_B_DASH_RE.match(lines[i]):
+        i += 1
+
+    holders: list[dict[str, Any]] = []
+    rank = 0
+    row_seq = 0
+    last_record: Optional[dict[str, Any]] = None
+    is_exit = False
+
+    while i < n:
+        line = lines[i]
+        if not line.strip():
+            i += 1
+            continue
+        if FORMAT_B_DASH_RE.match(line):
+            i += 1
+            # Lookahead: 一致行动人 paragraph or exit table or next period
+            while i < n and not FORMAT_B_DASH_RE.match(lines[i]) and not lines[i].startswith("●"):
+                if FORMAT_B_EXIT_HEAD_RE.search(lines[i]):
+                    # Move past the exit title + the dash line below it
+                    i += 1
+                    while i < n and not FORMAT_B_DASH_RE.match(lines[i]):
+                        i += 1
+                    if i < n and FORMAT_B_DASH_RE.match(lines[i]):
+                        i += 1
+                    is_exit = True
+                    rank = 0
+                    last_record = None
+                    break
+                # Skip any 一致行动人 / informational paragraph
+                i += 1
+            if i < n and FORMAT_B_DASH_RE.match(lines[i]) and not is_exit:
+                i += 1
+                continue
+            if not is_exit and (i >= n or lines[i].startswith("●")):
+                break
+            continue
+        if line.startswith("●"):
+            break
+
+        cells = _slice_by_visual_cols(line, col_starts)
+        if not cells:
+            i += 1
+            continue
+        name = cells[0].strip()
+        rest = [c.strip() for c in cells[1:]]
+        nature_frag = rest[0] if len(rest) > 0 else ""
+        shares_cell = rest[1] if len(rest) > 1 else ""
+        ratio_cell = rest[2] if len(rest) > 2 else ""
+        change_cell = rest[3] if len(rest) > 3 else ""
+
+        # Continuation logic: a row is a wrap continuation of the prior
+        # holder when ratio AND change are both blank, regardless of name
+        # / nature / shares fragment present. Two real-world cases:
+        # 1. Long names wrap (name fragment + everything else blank).
+        # 2. Big shares values overflow the column width (ICBC's
+        #    12400466.09 → "12400466.0\n9"); shares cell has a tiny digit
+        #    fragment and ratio/change are blank.
+        shares_is_overflow_only = bool(shares_cell) and shares_cell.replace(".", "").replace("-", "").isdigit()
+        is_continuation = (
+            (not ratio_cell)
+            and (not change_cell)
+            and (not shares_cell or shares_is_overflow_only)
+        )
+        if is_continuation:
+            if last_record is not None:
+                if name:
+                    last_record["holder_name"] = (last_record["holder_name"] + name).strip()
+                if nature_frag:
+                    last_record["holder_type_or_nature"] = (
+                        last_record["holder_type_or_nature"] + nature_frag
+                    ).strip()
+                # Numeric overflow for shares: append the trailing digit(s).
+                if shares_cell and shares_cell.replace(".", "").isdigit():
+                    base = (last_record.get("shares_text") or "").rstrip("万")
+                    last_record["shares_text"] = base + shares_cell + "万"
+                    full_num = _to_float(base + shares_cell)
+                    if full_num is not None:
+                        last_record["shares_approx"] = int(round(full_num * 10_000))
+            i += 1
+            continue
+        # Real data row
+        nature_or_type = nature_frag
+        shares_text = shares_cell
+        # tail: 一致行动人关系组 (only in 十大股东 block)
+        # share class detection
+        klass = None
+        ratio_val = None
+        m_inline = FORMAT_B_SHARE_CLASS_INLINE_RE.search(ratio_cell)
+        if m_inline:
+            klass = m_inline.group("klass")
+            ratio_val = float(m_inline.group("ratio"))
+        else:
+            ratio_val = _to_float(ratio_cell)
+            if "A股" in nature_or_type and "H股" not in nature_or_type:
+                klass = "A"
+            elif "H股" in nature_or_type:
+                klass = "H"
+            elif "B股" in nature_or_type:
+                klass = "B"
+        # shares: in 万 unit
+        shares_approx = None
+        shares_precision = None
+        shares_text_normalised = shares_text
+        if shares_text:
+            num = _to_float(shares_text)
+            if num is not None:
+                shares_approx = int(round(num * 10_000))
+                shares_precision = "万"
+                shares_text_normalised = f"{shares_text}万"
+        # change status
+        change_text = change_cell.strip()
+        change_status, change_shares = _classify_format_b_change(change_text)
+        rank += 1
+        row_seq += 1
+        rec = {
+            "holder_rank": rank,
+            "row_seq": row_seq,
+            "holder_name": name,
+            "share_class": klass,
+            "shares_text": shares_text_normalised,
+            "shares_approx": shares_approx,
+            "shares_precision": shares_precision,
+            "hold_ratio": ratio_val,
+            "holder_type_or_nature": nature_or_type,
+            "change_status": change_status,
+            "change_shares_text": change_text,
+            "change_shares_approx": change_shares,
+            "is_exit_row": is_exit,
+            "is_secondary_class": False,
+        }
+        holders.append(rec)
+        last_record = rec
+        i += 1
+
+    return period, holders, i
+
+
+def _classify_format_b_change(raw: str) -> tuple[str, Optional[int]]:
+    """Map Format B 增减情况(万) cell text to ``(status, signed_shares)``.
+
+    Format B values are stem numbers in 万 unit (e.g. ``368.42`` for +368.42万),
+    with sentinel words ``未变`` / ``新进`` / ``退出`` / ``---``.
+    """
+
+    txt = (raw or "").strip()
+    if not txt or txt == "---":
+        return "未知", None
+    if txt == "未变":
+        return "不变", 0
+    if txt == "新进":
+        return "新进", None
+    if txt == "退出":
+        return "退出", None
+    val = _to_float(txt)
+    if val is None:
+        return "未知", None
+    shares = int(round(val * 10_000))
+    if shares > 0:
+        return "增持", shares
+    if shares < 0:
+        return "减持", shares
+    return "不变", 0
+
+
+def parse_holders_format_b(
+    text: str, *, symbol: str = "", stock_name: str = ""
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Parse F10 段 4 from the 通达信沪深京F10 (Format B) layout."""
+
+    raw_hash = _hash(text)
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    head = PAGE_HEAD_RE.search(text or "")
+    page_code = head.group("code") if head else symbol
+    page_name = head.group("name") if head else stock_name
+    page_update_date = head.group("update_date") if head else None
+    market = _market_str(symbol or page_code)
+
+    holder_records: list[dict[str, Any]] = []
+    period_records: list[dict[str, Any]] = []
+
+    lines = _section_lines(text or "", 4)
+    n = len(lines)
+    i = 0
+    while i < n:
+        line = lines[i]
+        if FORMAT_B_PERIOD_HEAD_RE.match(line.strip()):
+            period, holders, end = _parse_format_b_period_block(lines, i)
+            if period is not None:
+                base = {
+                    "stock_code": page_code,
+                    "stock_name": page_name,
+                    "market": market,
+                    "report_date": period["report_date"],
+                    "holder_set": period["holder_set"],
+                    "page_update_date": page_update_date,
+                    "source": "tdx_f10",
+                    "raw_hash": raw_hash,
+                    "fetched_at": fetched_at,
+                }
+                period_records.append({**period, **base})
+                for h in holders:
+                    holder_records.append({**h, **base})
+            i = end
+            continue
+        i += 1
+
+    holders_df = pd.DataFrame(holder_records, columns=_HOLDER_COLUMNS)
+    periods_df = pd.DataFrame(period_records, columns=_PERIOD_COLUMNS)
+    return holders_df, periods_df
+
+
+# ---------------------------------------------------------------------------
+# Dispatch wrapper
+# ---------------------------------------------------------------------------
+
+
+def parse_holders_auto(
+    text: str, *, symbol: str = "", stock_name: str = ""
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Auto-detect F10 format and dispatch to the right parser.
+
+    Format A (灵通V9.0 / 港澳资讯) and Format B (通达信沪深京F10) coexist in
+    the live HQ host pool — your call may land on either depending on
+    which server answered. This wrapper returns identical column schemas.
+    """
+
+    fmt = detect_f10_format(text)
+    if fmt == "b":
+        return parse_holders_format_b(text, symbol=symbol, stock_name=stock_name)
+    return parse_holders(text, symbol=symbol, stock_name=stock_name)
 
 
 # ---------------------------------------------------------------------------
@@ -1061,7 +1426,11 @@ def fetch_holders_text(client: Any, symbol: str) -> Optional[str]:
 
 
 def fetch_holders(client: Any, symbol: str, *, stock_name: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Convenience wrapper: fetch + parse holders only (sections 4)."""
+    """Convenience wrapper: fetch + parse holders only (sections 4).
+
+    Uses :func:`parse_holders_auto` to handle both Format A and Format B
+    transparently — the live HQ pool serves both layouts.
+    """
 
     text = fetch_holders_text(client, symbol)
     if not text:
@@ -1069,7 +1438,7 @@ def fetch_holders(client: Any, symbol: str, *, stock_name: str = "") -> tuple[pd
             pd.DataFrame(columns=_HOLDER_COLUMNS),
             pd.DataFrame(columns=_PERIOD_COLUMNS),
         )
-    return parse_holders(text, symbol=symbol, stock_name=stock_name)
+    return parse_holders_auto(text, symbol=symbol, stock_name=stock_name)
 
 
 def fetch_research(
@@ -1091,22 +1460,22 @@ def fetch_research(
 class HolderFetcher:
     """Resilient F10 「股东研究」 fetcher with automatic server rotation.
 
-    The TDX HQ host pool (~117 servers) is unstable: roughly one third are
-    unreachable or return empty headers at any given moment. This class
-    pre-screens reachable servers via TCP probe, caches the first one that
-    successfully serves an F10 request, and rotates on failure.
+    The TDX HQ host pool (~117 servers) is unstable: a non-trivial fraction
+    are unreachable or return empty headers at any given moment, but the
+    set of "good" servers shifts over time — yesterday's bad server is
+    often today's good one. This class therefore avoids permanent
+    blacklists. Failed servers are *suspended* for a cooldown window and
+    re-tried automatically once it expires; the candidate pool is also
+    re-synced from :data:`tdxhub.consts.HQ_HOSTS` when it grows stale or
+    when callers explicitly request it via :meth:`refresh_pool`.
 
-    Typical usage::
-
-        fetcher = HolderFetcher()
-        text = fetcher.fetch_text("600519")           # raw F10 text
-        holders, periods = fetcher.fetch_holders("600519")
-        research = fetcher.fetch_research("600519")    # all four sections
-        fetcher.close()
-
-    The class is safe to reuse across many stocks. ``stats()`` returns a
-    snapshot of attempts / successes / rotations for observability.
+    The full HQ pool drives availability — calls land on whatever server
+    succeeds, not on a fixed cached one. ``stats()`` exposes attempts,
+    rotations and current pool state so monitoring is straightforward.
     """
+
+    DEFAULT_SUSPEND_SECONDS = 600  # 10 min cooldown for a failed server
+    DEFAULT_REFRESH_SECONDS = 1800  # re-sync HQ_HOSTS every 30 min
 
     def __init__(
         self,
@@ -1115,50 +1484,112 @@ class HolderFetcher:
         timeout: int = 15,
         probe_timeout: float = 2.0,
         max_attempts_per_call: int = 6,
-        prescreen_limit: int = 8,
+        prescreen_limit: int = 0,
+        suspend_seconds: int = DEFAULT_SUSPEND_SECONDS,
+        refresh_seconds: int = DEFAULT_REFRESH_SECONDS,
     ) -> None:
-        from tdxhub.consts import HQ_HOSTS
-
-        if candidates is None:
-            candidates = [(ip, port) for _name, ip, port in HQ_HOSTS]
-        self._candidates = list(candidates)
-        self._reachable: list[tuple[str, int]] = []
-        self._blacklist: set[tuple[str, int]] = set()
         self._timeout = timeout
         self._probe_timeout = probe_timeout
         self._max_attempts = max_attempts_per_call
         self._prescreen_limit = prescreen_limit
+        self._suspend_seconds = suspend_seconds
+        self._refresh_seconds = refresh_seconds
+        self._candidates: list[tuple[str, int]] = []
+        self._reachable: list[tuple[str, int]] = []
+        # server -> earliest unix-ts at which it can be retried again
+        self._suspended_until: dict[tuple[str, int], float] = {}
         self._client: Any = None
         self._client_server: Optional[tuple[str, int]] = None
-        self._stats = {
+        self._last_pool_refresh: float = 0.0
+        self._stats: dict[str, Any] = {
             "calls": 0,
             "successes": 0,
             "rotations": 0,
             "probe_calls": 0,
+            "pool_refreshes": 0,
         }
+        self.refresh_pool(initial=True, override_candidates=candidates)
 
     # -- internal helpers -----------------------------------------------------
 
+    def refresh_pool(
+        self,
+        *,
+        initial: bool = False,
+        override_candidates: Optional[list[tuple[str, int]]] = None,
+    ) -> None:
+        """Re-sync the candidate pool from :data:`tdxhub.consts.HQ_HOSTS`.
+
+        Drops nothing from ``_suspended_until`` so cooldowns continue to
+        apply, but adds any server that has appeared in HQ_HOSTS since the
+        last refresh.
+        """
+
+        from tdxhub.consts import HQ_HOSTS
+
+        import time
+
+        if override_candidates is not None:
+            new_pool = list(override_candidates)
+        else:
+            new_pool = [(ip, port) for _name, ip, port in HQ_HOSTS]
+        self._candidates = new_pool
+        self._last_pool_refresh = time.time()
+        self._stats["pool_refreshes"] += 1
+        if initial:
+            self._reachable = []
+
+    def _maybe_refresh_pool(self) -> None:
+        import time
+
+        if time.time() - self._last_pool_refresh > self._refresh_seconds:
+            self.refresh_pool()
+
+    def _is_suspended(self, server: tuple[str, int]) -> bool:
+        import time
+
+        until = self._suspended_until.get(server)
+        if until is None:
+            return False
+        if time.time() >= until:
+            del self._suspended_until[server]
+            return False
+        return True
+
+    def _suspend(self, server: tuple[str, int]) -> None:
+        import time
+
+        self._suspended_until[server] = time.time() + self._suspend_seconds
+
     def _probe_reachable(self) -> None:
         import socket
+        import random
 
         self._stats["probe_calls"] += 1
+        self._maybe_refresh_pool()
+        active = [s for s in self._candidates if not self._is_suspended(s)]
+        if not active:
+            # All candidates are in cooldown — clear cooldowns and try fresh
+            self._suspended_until.clear()
+            active = list(self._candidates)
+        random.shuffle(active)
         self._reachable = []
-        for ip, port in self._candidates:
-            if (ip, port) in self._blacklist:
-                continue
+        limit = self._prescreen_limit or len(active)
+        for ip, port in active:
             try:
                 s = socket.create_connection((ip, port), timeout=self._probe_timeout)
                 s.close()
                 self._reachable.append((ip, port))
-                if len(self._reachable) >= self._prescreen_limit:
+                if len(self._reachable) >= limit:
                     break
             except Exception:
-                self._blacklist.add((ip, port))
+                self._suspend((ip, port))
 
     def _ensure_client(self) -> Any:
-        if self._client is not None:
+        if self._client is not None and not self._is_suspended(self._client_server or ("", 0)):
             return self._client
+        if self._client is not None:
+            self._drop_client(suspend=False)
         from tdxhub.quotes import Quotes
 
         if not self._reachable:
@@ -1174,26 +1605,42 @@ class HolderFetcher:
                 return client
             except Exception as e:
                 last_err = e
-                self._blacklist.add((ip, port))
+                self._suspend((ip, port))
+                if (ip, port) in self._reachable:
+                    self._reachable.remove((ip, port))
+        # Pool exhausted — re-probe and try again once
+        self._probe_reachable()
+        for ip, port in list(self._reachable):
+            try:
+                client = Quotes.factory(
+                    market="std", server=f"{ip}:{port}", timeout=self._timeout
+                )
+                self._client = client
+                self._client_server = (ip, port)
+                return client
+            except Exception as e:
+                last_err = e
+                self._suspend((ip, port))
                 if (ip, port) in self._reachable:
                     self._reachable.remove((ip, port))
         if last_err is not None:
             raise last_err
-        raise RuntimeError("no reachable TDX HQ servers")
+        raise RuntimeError("no reachable TDX HQ servers in pool")
 
-    def _drop_client(self) -> None:
+    def _drop_client(self, *, suspend: bool = True) -> None:
         if self._client is not None:
             try:
                 self._client.close()
             except Exception:
                 pass
-            if self._client_server is not None:
-                self._blacklist.add(self._client_server)
+            if suspend and self._client_server is not None:
+                self._suspend(self._client_server)
                 if self._client_server in self._reachable:
                     self._reachable.remove(self._client_server)
         self._client = None
         self._client_server = None
-        self._stats["rotations"] += 1
+        if suspend:
+            self._stats["rotations"] += 1
 
     # -- public api -----------------------------------------------------------
 
@@ -1201,8 +1648,9 @@ class HolderFetcher:
         return {
             **self._stats,
             "active_server": self._client_server,
+            "candidate_count": len(self._candidates),
             "reachable_count": len(self._reachable),
-            "blacklist_count": len(self._blacklist),
+            "suspended_count": len(self._suspended_until),
         }
 
     def close(self) -> None:
@@ -1243,7 +1691,7 @@ class HolderFetcher:
                 pd.DataFrame(columns=_HOLDER_COLUMNS),
                 pd.DataFrame(columns=_PERIOD_COLUMNS),
             )
-        return parse_holders(text, symbol=symbol, stock_name=stock_name)
+        return parse_holders_auto(text, symbol=symbol, stock_name=stock_name)
 
     def fetch_research(
         self, symbol: str, *, stock_name: str = ""
@@ -1256,10 +1704,13 @@ class HolderFetcher:
 
 __all__ = [
     "parse_holders",
+    "parse_holders_format_b",
+    "parse_holders_auto",
     "parse_controlling_shareholder",
     "parse_shareholder_plans",
     "parse_shareholder_trades",
     "parse_research",
+    "detect_f10_format",
     "fetch_holders",
     "fetch_holders_text",
     "fetch_research",
