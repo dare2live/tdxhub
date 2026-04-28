@@ -1,7 +1,7 @@
 """
-mootdx 数据能力全景图 (API Capability Catalog)
+tdxhub 数据能力全景图 (API Capability Catalog)
 
-本模块将 mootdx 包装的全部 tdxpy/通达信协议能力显化为结构化目录，
+本模块将 tdxhub 包装的全部 tdxpy/通达信协议能力显化为结构化目录，
 便于开发者快速了解可用数据源、对应方法名、底层协议方法和数据限制。
 
 使用方式:
@@ -315,7 +315,7 @@ for _section in CAPABILITIES.values():
 
 
 def summary(verbose=False):
-    """打印 mootdx 数据能力全景表"""
+    """打印 tdxhub 数据能力全景表"""
 
     sections = [
         ('标准行情 StdQuotes', 'std_quotes'),
@@ -325,7 +325,7 @@ def summary(verbose=False):
     ]
 
     print('=' * 72)
-    print('  mootdx 数据能力全景图')
+    print('  tdxhub 数据能力全景图')
     print(f'  共计 {TOTAL_METHODS} 个 API 方法')
     print('=' * 72)
 
