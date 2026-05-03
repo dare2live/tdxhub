@@ -252,11 +252,11 @@ CAPABILITIES = {
         },
         {
             'method': 'Affair.parse',
-            'description': '解析 gpcw 财务文件（三大报表 + 机构持仓 + 盈利预测，583 个字段）',
+            'description': '动态解析 gpcw 财务文件（三大报表 + 机构持仓 + 盈利预测；已知字段名 + colNN raw fallback）',
             'tdxpy_method': '本地二进制解析',
             'params': 'downdir, filename',
             'limits': '—',
-            'returns': 'DataFrame(code, report_date, 基本每股收益, ... 583列)',
+            'returns': 'DataFrame(code, report_date, 基本每股收益, ... 全部 report_size 字段)',
             'category': '财务数据',
         },
     ],

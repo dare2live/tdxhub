@@ -181,7 +181,7 @@
     },
     {
       "method": "Affair.parse",
-      "desc": "解析 gpcw 财务文件（三大报表 + 机构持仓 + 盈利预测，583 个字段）",
+      "desc": "动态解析 gpcw 财务文件（三大报表 + 机构持仓 + 盈利预测；已知字段名 + colNN raw fallback）",
       "tdxpy": "本地二进制解析",
       "limits": "—",
       "category": "财务数据"

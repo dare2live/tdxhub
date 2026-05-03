@@ -17,7 +17,7 @@ tdxhub 现已包装 **29 个数据接口** (来自 vendored `tdxhub/protocol/`, 
 | 实时数据 | 6 | `quotes` / `minute` / `transaction` / 扩展市场实时 |
 | 基础信息 | 6 | `stocks` / `stock_count` / `block` / F10 等 |
 | 基本面 | 3 | `finance` / `Affair.files` / `Affair.fetch` |
-| 财务数据 | 3 | `Affair.parse` (gpcw 二进制 585 字段) |
+| 财务数据 | 3 | `Affair.parse` (gpcw 二进制动态全字段, 已知列名 + `colNN` fallback) |
 | 离线数据 | 3 | `Reader.daily` / `Reader.minute` / `Reader.fzline` (.day/.lc1/.lc5) |
 
 ---
@@ -83,9 +83,9 @@ from tdxhub.affair import Affair
 |---|---|---|:---:|
 | `Affair.files()` | gpcw 文件列表 (含 hash) | `get_report_file_by_size` + 直连 120.76.152.87 | ✅ (sync_financial) |
 | `Affair.fetch(...)` | 下载 gpcw 文件 | 二进制 HTTP | ✅ |
-| `Affair.parse(...)` | **解析 gpcw 二进制 (585 字段)** | 自实现 | ✅ |
+| `Affair.parse(...)` | **动态解析 gpcw 二进制完整字段** | 自实现, 已知列名 + `colNN` fallback | ✅ |
 
-gpcw 字段含三大报表 + 机构持仓 + 盈利预测. 这是 tdxhub 最有价值的独家能力.
+gpcw 字段含三大报表 + 机构持仓 + 盈利预测. 解析器按文件头 `report_size` 动态读取全部字段; 已知字段使用中文列名, 未命名或新尾部字段使用 `colNN` raw 名称保留. 这是 tdxhub 最有价值的独家能力.
 
 ---
 

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tdxhub.affair import Affair
+from tdxhub.financial import financial
 from tdxhub.logger import logger
 
 
@@ -45,3 +46,52 @@ class TestAffair(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_financial_list_content_closes_api_when_connect_returns_bool(monkeypatch, tmp_path):
+    closed = {"value": False}
+
+    class FakeApi:
+        need_setup = True
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def connect(self, *_args):
+            return True
+
+        def get_report_file_by_size(self, filename, **_kwargs):
+            assert filename == "tdxfin/gpcw.txt"
+            return b"gpcw20260331.zip,abc,120000\n"
+
+        def close(self):
+            closed["value"] = True
+
+    monkeypatch.setattr(financial, "TdxHq_API", FakeApi)
+    crawler = financial.FinancialList()
+    crawler.bestip = ("1.1.1.1", 7727)
+    output = tmp_path / "gpcw.txt"
+
+    handle = crawler.content(downdir=str(output))
+
+    handle.close()
+    assert output.read_bytes() == b"gpcw20260331.zip,abc,120000\n"
+    assert closed["value"] is True
+
+
+def test_financial_content_raises_clear_error_when_connect_fails(monkeypatch, tmp_path):
+    class FakeApi:
+        need_setup = True
+
+        def connect(self, *_args):
+            return False
+
+        def close(self):
+            raise AssertionError("close should not be called after failed connect")
+
+    monkeypatch.setattr(financial, "TdxHq_API", FakeApi)
+    crawler = financial.Financial()
+    crawler.bestip = ("1.1.1.1", 7727)
+
+    with pytest.raises(ConnectionError, match="connect to TDX financial server failed"):
+        crawler.content(downdir=str(tmp_path), filename="gpcw20260331.zip")
