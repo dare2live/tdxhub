@@ -66,7 +66,7 @@ def detect_f10_format(text: str) -> str:
     return "a"
 
 PAGE_HEAD_RE = re.compile(
-    r"☆股东研究☆\s*◇(?P<code>\S+)\s+(?P<name>\S+)\s*更新日期：(?P<update_date>\d{4}-\d{2}-\d{2})◇"
+    r"(?:☆)?股东研究☆\s*◇(?P<code>\S+)\s+(?P<name>\S+)\s*更新日期：(?P<update_date>\d{4}-\d{2}-\d{2})◇"
 )
 PERIOD_HEAD_RE = re.compile(
     r"截至日期：(?P<report_date>\d{4}-\d{2}-\d{2})\s+(?P<table_kind>十大流通股东情况|十大股东情况)"
@@ -86,6 +86,15 @@ SHARE_NATURE_KIND_RE = re.compile(r"(?P<klass>[AHB])股")
 ARROW_NUM_RE = re.compile(r"^[↑↓]?(?P<num>-?[\d.]+(?:万|亿)?)$")
 
 UNIT_MAP = {"亿": 100_000_000, "万": 10_000, "股": 1, "": 1}
+SCALED_UNIT_MAP = {
+    "亿元": 100_000_000,
+    "万元": 10_000,
+    "亿": 100_000_000,
+    "万": 10_000,
+    "股": 1,
+    "元": 1,
+    "": 1,
+}
 
 ChinesePuncTrans = str.maketrans({"，": ",", "（": "(", "）": ")", "：": ":"})
 
@@ -113,6 +122,40 @@ def _to_int_shares(text: str) -> tuple[Optional[int], Optional[str]]:
     val = float(m.group(1))
     unit = m.group(2) or ""
     return int(round(val * UNIT_MAP[unit])), (unit or "股")
+
+
+def _to_scaled_int(text: str) -> tuple[Optional[int], Optional[str]]:
+    """Parse shares or money display values into the base unit.
+
+    TDX F10 tables reuse the same ``亿``/``万`` display convention for share
+    counts and RMB amounts. The caller decides whether the returned integer
+    represents shares or yuan.
+    """
+
+    if not text:
+        return None, None
+    raw = (
+        text.strip()
+        .replace(",", "")
+        .replace("，", "")
+        .replace(" ", "")
+    )
+    if raw in ("", "-", "---", "--", "—"):
+        return None, None
+    m = re.match(r"^(-?\d+(?:\.\d+)?)(亿元|万元|亿|万|股|元)?$", raw)
+    if not m:
+        return None, None
+    val = float(m.group(1))
+    unit = m.group(2) or ""
+    return int(round(val * SCALED_UNIT_MAP[unit])), (unit or "base")
+
+
+def _to_signed_scaled_int(text: str) -> Optional[int]:
+    txt = (text or "").strip()
+    if txt in ("不变", "未变"):
+        return 0
+    val, _unit = _to_scaled_int(txt)
+    return val
 
 
 def _to_float(text: str) -> Optional[float]:
@@ -168,6 +211,45 @@ def _split_pipe_row(line: str) -> list[str]:
     if parts and not parts[-1].strip():
         parts = parts[:-1]
     return [_strip_cell(p) for p in parts]
+
+
+def _split_box_row(line: str) -> list[str]:
+    """Return cells from a Format B ``│a│b│...│`` row."""
+
+    if "│" not in line:
+        return []
+    parts = line.split("│")
+    if parts and not parts[0].strip():
+        parts = parts[1:]
+    if parts and not parts[-1].strip():
+        parts = parts[:-1]
+    return [_strip_cell(p) for p in parts]
+
+
+def _take_box_table_block(lines: list[str], start: int) -> tuple[list[list[str]], int]:
+    """Read a Format B box table that uses halfwidth ``│`` separators."""
+
+    rows: list[list[str]] = []
+    i = start
+    n = len(lines)
+    if i >= n or not TABLE_TOP.match(lines[i].rstrip()):
+        return rows, i
+    i += 1
+    while i < n:
+        line = lines[i].rstrip()
+        if TABLE_BOTTOM.match(line):
+            return rows, i + 1
+        if TABLE_TOP.match(line) or TABLE_MID.match(line):
+            i += 1
+            continue
+        if "│" in line:
+            cells = _split_box_row(line)
+            if cells:
+                rows.append(cells)
+            i += 1
+            continue
+        i += 1
+    return rows, i
 
 
 def _is_table_border(line: str) -> bool:
@@ -363,7 +445,7 @@ def _section_lines(text: str, section_num: int) -> list[str]:
     heading at line start to avoid that.
     """
 
-    pat = rf"^【{section_num}\.[^】]*】\s*$"
+    pat = rf"^【{section_num}\.[^】]*】.*$"
     m = re.search(pat, text or "", re.MULTILINE)
     if m is None:
         return []
@@ -372,6 +454,18 @@ def _section_lines(text: str, section_num: int) -> list[str]:
     if nxt is not None:
         rest = rest[: nxt.start()]
     return rest.splitlines()
+
+
+def _section_heading(text: str, section_num: int) -> str:
+    pat = rf"^【{section_num}\.[^】]*】.*$"
+    m = re.search(pat, text or "", re.MULTILINE)
+    return m.group(0) if m else ""
+
+
+def _section_report_date_text(text: str, section_num: int) -> Optional[str]:
+    heading = _section_heading(text, section_num)
+    m = re.search(r"(?:截止日期|截至日期)[:：]\s*(\d{4}[.-]\d{1,2}[.-]\d{1,2})", heading)
+    return m.group(1) if m else None
 
 
 def _section_4_lines(text: str) -> list[str]:
@@ -454,7 +548,7 @@ def parse_holders(text: str, *, symbol: str = "", stock_name: str = "") -> tuple
                 "stock_code": page_code,
                 "stock_name": page_name,
                 "market": market,
-                "report_date": head_m.group("report_date"),
+                "report_date": _normalise_date(head_m.group("report_date")),
                 "holder_set": holder_set,
                 "a_share_holder_count_text": holder_count_text,
                 "a_share_holder_count": holder_count,
@@ -678,6 +772,11 @@ def parse_controlling_shareholder(
     Returns ``None`` if the section is missing or shows ``暂无数据``.
     """
 
+    if detect_f10_format(text) == "b":
+        return parse_controlling_shareholder_format_b(
+            text, symbol=symbol, stock_name=stock_name
+        )
+
     raw_hash = _hash(text)
     fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     head = PAGE_HEAD_RE.search(text or "")
@@ -734,6 +833,81 @@ def parse_controlling_shareholder(
         i += 1
 
     if rec["primary_shareholder_name"] is None:
+        return None
+    return rec
+
+
+def parse_controlling_shareholder_format_b(
+    text: str, *, symbol: str = "", stock_name: str = ""
+) -> Optional[dict[str, Any]]:
+    """Parse Format B 段 1, including the 控股关系 chain text."""
+
+    raw_hash = _hash(text)
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    head = PAGE_HEAD_RE.search(text or "")
+    page_code = head.group("code") if head else symbol
+    page_name = head.group("name") if head else stock_name
+    page_update_date = head.group("update_date") if head else None
+    market = _market_str(symbol or page_code)
+
+    lines = _section_lines(text or "", 1)
+    if not lines or any("暂无数据" in ln for ln in lines):
+        return None
+
+    rec: dict[str, Any] = {
+        "stock_code": page_code,
+        "stock_name": page_name,
+        "market": market,
+        "primary_shareholder_label": None,
+        "primary_shareholder_name": None,
+        "primary_shareholder_ratio": None,
+        "primary_shareholder_raw": None,
+        "actual_controller_name": None,
+        "actual_controller_ratio": None,
+        "actual_controller_raw": None,
+        "control_chain_text": None,
+        "page_update_date": page_update_date,
+        "source": "tdx_f10",
+        "raw_hash": raw_hash,
+        "fetched_at": fetched_at,
+    }
+
+    i = 0
+    n = len(lines)
+    chain_parts: list[str] = []
+    current_label: Optional[str] = None
+    while i < n:
+        if TABLE_TOP.match(lines[i].rstrip()):
+            rows, end = _take_box_table_block(lines, i)
+            for row in rows:
+                if len(row) < 2:
+                    continue
+                label = row[0].strip()
+                value = row[1].strip()
+                if label:
+                    current_label = label
+                if not value:
+                    continue
+                if (label or current_label) == "控股关系":
+                    chain_parts.append(value)
+                    continue
+                name, ratio = _split_name_ratio(value)
+                if label in PRIMARY_LABELS:
+                    rec["primary_shareholder_label"] = label
+                    rec["primary_shareholder_name"] = name
+                    rec["primary_shareholder_ratio"] = ratio
+                    rec["primary_shareholder_raw"] = value
+                elif label == ACTUAL_CONTROLLER_LABEL:
+                    rec["actual_controller_name"] = name
+                    rec["actual_controller_ratio"] = ratio
+                    rec["actual_controller_raw"] = value
+            i = end
+            continue
+        i += 1
+
+    if chain_parts:
+        rec["control_chain_text"] = "\n".join(chain_parts)
+    if rec["primary_shareholder_name"] is None and not rec.get("control_chain_text"):
         return None
     return rec
 
@@ -797,6 +971,11 @@ def parse_shareholder_plans(
 ) -> pd.DataFrame:
     """Parse F10 段 2 (股东增减持计划) into one DataFrame row per plan."""
 
+    if detect_f10_format(text) == "b":
+        return parse_shareholder_plans_format_b(
+            text, symbol=symbol, stock_name=stock_name
+        )
+
     raw_hash = _hash(text)
     fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     head = PAGE_HEAD_RE.search(text or "")
@@ -855,15 +1034,24 @@ _PLAN_COLUMNS = [
     "stock_name",
     "market",
     "announce_date",
+    "latest_announce_date",
+    "first_announce_date",
     "subject",
     "direction",
     "progress",
     "start_date",
     "end_date",
+    "target_shares_min_text",
+    "target_shares_min",
     "target_shares_text",
     "target_shares",
     "target_ratio_text",
     "target_ratio",
+    "target_amount_min_text",
+    "target_amount_min",
+    "target_amount_max_text",
+    "target_amount_max",
+    "trade_method",
     "reason",
     "narrative",
     "page_update_date",
@@ -873,17 +1061,192 @@ _PLAN_COLUMNS = [
 ]
 
 
+FORMAT_B_PLAN_META_RE = re.compile(
+    r"最新公告日期[:：](?P<announce>\d{4}[.-]\d{1,2}[.-]\d{1,2})[，,]\s*"
+    r"变动方向[:：](?P<direction>[^，,]+)[，,]\s*进度[:：](?P<progress>\S+)"
+)
+
+
+def _normalise_plan_direction(raw: str) -> str:
+    txt = (raw or "").strip()
+    if "增持" in txt:
+        return "增持计划"
+    if "减持" in txt:
+        return "减持计划"
+    return txt
+
+
+def _extract_format_b_plan_notes(notes: list[str]) -> dict[str, str]:
+    joined = "".join(n.strip() for n in notes if n.strip())
+    out = {
+        "first_announce_date": "",
+        "start_date": "",
+        "end_date": "",
+        "reason": "",
+        "trade_method": "",
+        "narrative": joined,
+    }
+    patterns = {
+        "first_announce_date": r"首次公告披露日[:：]([^，,；;]*)",
+        "start_date": r"起始变动日期[:：]([^，,；;]*)",
+        "end_date": r"截止变动日期[:：]([^，,；;]*)",
+        "reason": r"变动目的[:：]([^；;]*)",
+        "trade_method": r"交易方式[:：]([^；;]*)",
+    }
+    for key, pat in patterns.items():
+        m = re.search(pat, joined)
+        if m:
+            out[key] = m.group(1).strip()
+    return out
+
+
+def _parse_format_b_plan_rows(rows: list[list[str]]) -> tuple[list[list[str]], list[str]]:
+    """Return data rows and note lines from one Format B plan box table."""
+
+    rows = _normalise_row_count(rows)
+    data_rows: list[list[str]] = []
+    notes: list[str] = []
+    current: Optional[list[str]] = None
+    in_notes = False
+    for raw_cells in rows:
+        cells = (raw_cells + [""] * 6)[:6]
+        blob = "".join(c.strip() for c in raw_cells)
+        if not blob:
+            continue
+        if "股东名称" in blob or "拟变动" in blob or blob in ("(股)股本比(%)(元)(元)",):
+            continue
+        if blob.startswith(("说明：", "变动目的：", "变动股份来源：", "交易方式：")):
+            in_notes = True
+            notes.append(blob)
+            continue
+        if in_notes:
+            notes.append(blob)
+            continue
+
+        has_measure = any(c.strip() for c in cells[2:6])
+        if has_measure:
+            current = [c.strip() for c in cells]
+            data_rows.append(current)
+            continue
+        if current is not None:
+            if cells[0].strip():
+                current[0] = (current[0] + cells[0].strip()).strip()
+            if cells[1].strip():
+                current[1] = (current[1] + cells[1].strip()).strip()
+    return data_rows, notes
+
+
+def parse_shareholder_plans_format_b(
+    text: str, *, symbol: str = "", stock_name: str = ""
+) -> pd.DataFrame:
+    """Parse Format B 段 2 股东增减持计划.
+
+    The Format B plan table is not label/value based: each plan starts with a
+    metadata line (latest announcement, direction, progress), followed by a
+    box table whose data row can wrap across several visual rows. Empty-shell
+    rows are filtered out.
+    """
+
+    raw_hash = _hash(text)
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    head = PAGE_HEAD_RE.search(text or "")
+    page_code = head.group("code") if head else symbol
+    page_name = head.group("name") if head else stock_name
+    page_update_date = head.group("update_date") if head else None
+    market = _market_str(symbol or page_code)
+
+    lines = _section_lines(text or "", 2)
+    if not lines or any("暂无数据" in ln for ln in lines):
+        return pd.DataFrame(columns=_PLAN_COLUMNS)
+
+    plans: list[dict[str, Any]] = []
+    meta: dict[str, str] = {"announce": "", "direction": "", "progress": ""}
+    i = 0
+    n = len(lines)
+    while i < n:
+        meta_m = FORMAT_B_PLAN_META_RE.search(lines[i])
+        if meta_m:
+            meta = meta_m.groupdict()
+            i += 1
+            continue
+        if TABLE_TOP.match(lines[i].rstrip()):
+            rows, end = _take_box_table_block(lines, i)
+            data_rows, notes = _parse_format_b_plan_rows(rows)
+            note_values = _extract_format_b_plan_notes(notes)
+            for data in data_rows:
+                subject = data[0].strip()
+                direction = _normalise_plan_direction(meta.get("direction", ""))
+                progress = meta.get("progress", "").strip()
+                if not any((subject, direction, progress)):
+                    continue
+                target_shares_text = data[2].strip()
+                target_shares, _ = _to_scaled_int(target_shares_text)
+                target_ratio_text = data[3].strip()
+                target_amount_min_text = data[4].strip()
+                target_amount_max_text = data[5].strip()
+                target_amount_min, _ = _to_scaled_int(target_amount_min_text)
+                target_amount_max, _ = _to_scaled_int(target_amount_max_text)
+                plans.append(
+                    {
+                        "stock_code": page_code,
+                        "stock_name": page_name,
+                        "market": market,
+                        "announce_date": _normalise_date(meta.get("announce", "")),
+                        "latest_announce_date": _normalise_date(meta.get("announce", "")),
+                        "first_announce_date": _normalise_date(
+                            note_values.get("first_announce_date", "")
+                        ),
+                        "subject": subject,
+                        "direction": direction,
+                        "progress": progress,
+                        "start_date": _normalise_date(note_values.get("start_date", "")),
+                        "end_date": _normalise_date(note_values.get("end_date", "")),
+                        "target_shares_min_text": "",
+                        "target_shares_min": None,
+                        "target_shares_text": target_shares_text,
+                        "target_shares": target_shares,
+                        "target_ratio_text": target_ratio_text,
+                        "target_ratio": _to_float(target_ratio_text),
+                        "target_amount_min_text": target_amount_min_text,
+                        "target_amount_min": target_amount_min,
+                        "target_amount_max_text": target_amount_max_text,
+                        "target_amount_max": target_amount_max,
+                        "trade_method": note_values.get("trade_method", ""),
+                        "reason": note_values.get("reason", ""),
+                        "narrative": note_values.get("narrative", ""),
+                        "page_update_date": page_update_date,
+                        "source": "tdx_f10",
+                        "raw_hash": raw_hash,
+                        "fetched_at": fetched_at,
+                    }
+                )
+            i = end
+            continue
+        i += 1
+
+    return pd.DataFrame(plans, columns=_PLAN_COLUMNS)
+
+
 _DATE_RE = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
 
 
 def _normalise_date(s: str) -> Optional[str]:
     if not s:
         return None
-    m = _DATE_RE.search(s)
+    m = _DATE_RE.search(s.replace(".", "-"))
     if not m:
         return None
     y, mo, d = m.groups()
-    return f"{int(y):04d}-{int(mo):02d}-{int(d):02d}"
+    try:
+        parsed = datetime(int(y), int(mo), int(d))
+    except ValueError:
+        return None
+    # F10 occasionally contains OCR/alignment artifacts such as 2121/2232.
+    # Treat those as invalid structured dates while preserving the raw text
+    # in the caller's narrative/date_text fields.
+    if parsed.year < 1990 or parsed.year > datetime.now().year + 1:
+        return None
+    return parsed.strftime("%Y-%m-%d")
 
 
 # ---------------------------------------------------------------------------
@@ -1014,6 +1377,601 @@ _TRADE_COLUMNS = [
 
 
 # ---------------------------------------------------------------------------
+# Format B Section 3 — 重要股东持股变动
+# ---------------------------------------------------------------------------
+
+
+def _split_format_b_period(value: str) -> tuple[Optional[str], Optional[str]]:
+    dates = re.findall(r"\d{4}[.-]\d{1,2}[.-]\d{1,2}", value or "")
+    if not dates:
+        return None, None
+    start = _normalise_date(dates[0])
+    end = _normalise_date(dates[-1])
+    return start, end
+
+
+def _shares_from_wan_text(value: str) -> tuple[Optional[int], str]:
+    text = (value or "").strip()
+    if not text or text == "---":
+        return None, text
+    num = _to_float(text)
+    if num is None:
+        return None, text
+    return int(round(num * 10_000)), f"{text}万"
+
+
+def parse_shareholder_trades_format_b(
+    text: str, *, symbol: str = "", stock_name: str = ""
+) -> pd.DataFrame:
+    """Parse Format B 段 3 重要股东持股变动.
+
+    This richer table has period, actor, changed shares, average price,
+    remaining shares and transaction method. It is intentionally separate
+    from :func:`parse_shareholder_trades`, whose schema mirrors Format A.
+    """
+
+    raw_hash = _hash(text)
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    head = PAGE_HEAD_RE.search(text or "")
+    page_code = head.group("code") if head else symbol
+    page_name = head.group("name") if head else stock_name
+    page_update_date = head.group("update_date") if head else None
+    market = _market_str(symbol or page_code)
+
+    lines = _section_lines(text or "", 3)
+    if not lines or any("暂无数据" in ln for ln in lines):
+        return pd.DataFrame(columns=_TRADE_B_COLUMNS)
+
+    records: list[dict[str, Any]] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        if TABLE_TOP.match(lines[i].rstrip()):
+            rows, end = _take_box_table_block(lines, i)
+            rows = _normalise_row_count(rows)
+            last_record: Optional[dict[str, Any]] = None
+            for cells in rows:
+                if len(cells) < 6:
+                    continue
+                blob = "".join(cells)
+                if "变动期间" in blob and "变动人" in blob:
+                    continue
+                period_text = cells[0].strip()
+                holder_name = cells[1].strip()
+                shares_change_cell = cells[2].strip()
+                avg_price_cell = cells[3].strip()
+                shares_after_cell = cells[4].strip()
+                method_cell = cells[5].strip()
+
+                if not period_text and not shares_change_cell and not avg_price_cell and not shares_after_cell and not method_cell:
+                    if last_record is not None and holder_name:
+                        last_record["holder_name"] = (
+                            last_record["holder_name"] + holder_name
+                        ).strip()
+                    continue
+
+                start_date, end_date = _split_format_b_period(period_text)
+                shares_change, shares_change_text = _shares_from_wan_text(shares_change_cell)
+                shares_after, shares_after_text = _shares_from_wan_text(shares_after_cell)
+                rec = {
+                    "stock_code": page_code,
+                    "stock_name": page_name,
+                    "market": market,
+                    "change_period_text": period_text,
+                    "change_start_date": start_date,
+                    "change_end_date": end_date,
+                    "change_date": end_date or start_date,
+                    "holder_name": holder_name,
+                    "shares_change_text": shares_change_text,
+                    "shares_change": shares_change,
+                    "average_price_text": avg_price_cell,
+                    "average_price": _to_float(avg_price_cell) if avg_price_cell != "---" else None,
+                    "shares_after_text": shares_after_text,
+                    "shares_after": shares_after,
+                    "change_method": method_cell,
+                    "page_update_date": page_update_date,
+                    "source": "tdx_f10",
+                    "raw_hash": raw_hash,
+                    "fetched_at": fetched_at,
+                }
+                records.append(rec)
+                last_record = rec
+            i = end
+            continue
+        i += 1
+
+    return pd.DataFrame(records, columns=_TRADE_B_COLUMNS)
+
+
+_TRADE_B_COLUMNS = [
+    "stock_code",
+    "stock_name",
+    "market",
+    "change_period_text",
+    "change_start_date",
+    "change_end_date",
+    "change_date",
+    "holder_name",
+    "shares_change_text",
+    "shares_change",
+    "average_price_text",
+    "average_price",
+    "shares_after_text",
+    "shares_after",
+    "change_method",
+    "page_update_date",
+    "source",
+    "raw_hash",
+    "fetched_at",
+]
+
+
+# ---------------------------------------------------------------------------
+# Format B Section 5 — 股东人数变化
+# ---------------------------------------------------------------------------
+
+
+def parse_holder_count_history_format_b(
+    text: str, *, symbol: str = "", stock_name: str = ""
+) -> pd.DataFrame:
+    """Parse Format B 段 5 股东人数变化."""
+
+    raw_hash = _hash(text)
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    head = PAGE_HEAD_RE.search(text or "")
+    page_code = head.group("code") if head else symbol
+    page_name = head.group("name") if head else stock_name
+    page_update_date = head.group("update_date") if head else None
+    market = _market_str(symbol or page_code)
+
+    lines = _section_lines(text or "", 5)
+    if not lines or any("暂无数据" in ln for ln in lines):
+        return pd.DataFrame(columns=_HOLDER_COUNT_COLUMNS)
+
+    records: list[dict[str, Any]] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        if TABLE_TOP.match(lines[i].rstrip()):
+            rows, end = _take_box_table_block(lines, i)
+            rows = _normalise_row_count(rows)
+            for cells in rows:
+                if len(cells) < 7:
+                    continue
+                if "截止日期" in "".join(cells):
+                    continue
+                date_text = cells[0].strip()
+                if not date_text:
+                    continue
+                holder_count_text = cells[1].strip()
+                change_text = cells[2].strip()
+                change_pct_text = cells[3].strip()
+                avg_float_text = cells[4].strip()
+                avg_float_change_pct_text = cells[5].strip()
+                close_price_text = cells[6].strip()
+                holder_count, _ = _to_int_shares(holder_count_text)
+                holder_count_change, _ = _to_int_shares(change_text)
+                avg_float, _ = _to_int_shares(avg_float_text)
+                records.append({
+                    "stock_code": page_code,
+                    "stock_name": page_name,
+                    "market": market,
+                    "report_date": _normalise_date(date_text),
+                    "report_date_text": date_text,
+                    "holder_count_text": holder_count_text,
+                    "holder_count": holder_count,
+                    "holder_count_change_text": change_text,
+                    "holder_count_change": holder_count_change,
+                    "holder_count_change_pct_text": change_pct_text,
+                    "holder_count_change_pct": _to_float(change_pct_text),
+                    "avg_float_shares_text": avg_float_text,
+                    "avg_float_shares": avg_float,
+                    "avg_float_shares_change_pct_text": avg_float_change_pct_text,
+                    "avg_float_shares_change_pct": _to_float(avg_float_change_pct_text),
+                    "close_price_text": close_price_text,
+                    "close_price": _to_float(close_price_text),
+                    "page_update_date": page_update_date,
+                    "source": "tdx_f10",
+                    "raw_hash": raw_hash,
+                    "fetched_at": fetched_at,
+                })
+            i = end
+            continue
+        i += 1
+
+    return pd.DataFrame(records, columns=_HOLDER_COUNT_COLUMNS)
+
+
+_HOLDER_COUNT_COLUMNS = [
+    "stock_code",
+    "stock_name",
+    "market",
+    "report_date",
+    "report_date_text",
+    "holder_count_text",
+    "holder_count",
+    "holder_count_change_text",
+    "holder_count_change",
+    "holder_count_change_pct_text",
+    "holder_count_change_pct",
+    "avg_float_shares_text",
+    "avg_float_shares",
+    "avg_float_shares_change_pct_text",
+    "avg_float_shares_change_pct",
+    "close_price_text",
+    "close_price",
+    "page_update_date",
+    "source",
+    "raw_hash",
+    "fetched_at",
+]
+
+
+# ---------------------------------------------------------------------------
+# Format B Section 6 — 同大股东个股
+# ---------------------------------------------------------------------------
+
+COMMON_MAJOR_HOLDER_RE = re.compile(r"^(?P<name>.+?)[（(]\s*共\s*\d+\s*家\s*[）)]\s*$")
+COMMON_MAJOR_ROW_RE = re.compile(
+    r"^\s*(?P<rank>\d+)\s+"
+    r"(?P<code>\d{6})\s+"
+    r"(?P<name>.+?)\s+"
+    r"(?P<shares>-?[\d.,]+(?:亿|万|股)?)\s+"
+    r"(?P<ratio>-?[\d.,]+|---)\s+"
+    r"(?P<change>不变|未变|新进|退出|---|-?[\d.,]+(?:亿|万|股)?)\s+"
+    r"(?P<parent>-?[\d.,]+(?:亿元|万元|亿|万|元)?)\s+"
+    r"(?P<deduct>-?[\d.,]+(?:亿元|万元|亿|万|元)?)\s*$"
+)
+
+
+def _clean_major_holder_name(line: str) -> str:
+    m = COMMON_MAJOR_HOLDER_RE.match(line.strip())
+    if m:
+        return m.group("name").strip()
+    return line.strip()
+
+
+def parse_common_major_holder_stocks_format_b(
+    text: str, *, symbol: str = "", stock_name: str = ""
+) -> pd.DataFrame:
+    """Parse Format B 段 6 同大股东个股."""
+
+    raw_hash = _hash(text)
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    head = PAGE_HEAD_RE.search(text or "")
+    page_code = head.group("code") if head else symbol
+    page_name = head.group("name") if head else stock_name
+    page_update_date = head.group("update_date") if head else None
+    market = _market_str(symbol or page_code)
+    report_date_text = _section_report_date_text(text, 6)
+    report_date = _normalise_date(report_date_text or "")
+
+    lines = _section_lines(text or "", 6)
+    if not lines or any("暂无数据" in ln for ln in lines):
+        return pd.DataFrame(columns=_COMMON_MAJOR_HOLDER_COLUMNS)
+
+    records: list[dict[str, Any]] = []
+    major_holder_name: Optional[str] = None
+    row_seq = 0
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or FORMAT_B_DASH_RE.match(stripped):
+            continue
+        if stripped.startswith("【"):
+            break
+        if stripped.startswith("排名") and "证券代码" in stripped:
+            continue
+        m = COMMON_MAJOR_ROW_RE.match(stripped)
+        if not m:
+            major_holder_name = _clean_major_holder_name(stripped)
+            continue
+        if not major_holder_name:
+            continue
+        row_seq += 1
+        shares_text = m.group("shares")
+        shares, _ = _to_scaled_int(shares_text)
+        change_text = m.group("change")
+        net_profit_parent_text = m.group("parent")
+        net_profit_deducted_text = m.group("deduct")
+        net_profit_parent, _ = _to_scaled_int(net_profit_parent_text)
+        net_profit_deducted, _ = _to_scaled_int(net_profit_deducted_text)
+        records.append(
+            {
+                "stock_code": page_code,
+                "stock_name": page_name,
+                "market": market,
+                "report_date": report_date,
+                "report_date_text": report_date_text,
+                "major_holder_name": major_holder_name,
+                "peer_stock_code": m.group("code"),
+                "peer_stock_name": m.group("name").strip(),
+                "shares_text": shares_text,
+                "shares": shares,
+                "hold_ratio_text": m.group("ratio"),
+                "hold_ratio": _to_float(m.group("ratio")),
+                "change_text": change_text,
+                "change_shares": _to_signed_scaled_int(change_text),
+                "net_profit_parent_text": net_profit_parent_text,
+                "net_profit_parent": net_profit_parent,
+                "net_profit_deducted_text": net_profit_deducted_text,
+                "net_profit_deducted": net_profit_deducted,
+                "page_update_date": page_update_date,
+                "source": "tdx_f10",
+                "raw_hash": raw_hash,
+                "fetched_at": fetched_at,
+                "row_seq": row_seq,
+            }
+        )
+
+    return pd.DataFrame(records, columns=_COMMON_MAJOR_HOLDER_COLUMNS)
+
+
+_COMMON_MAJOR_HOLDER_COLUMNS = [
+    "stock_code",
+    "stock_name",
+    "market",
+    "report_date",
+    "report_date_text",
+    "major_holder_name",
+    "peer_stock_code",
+    "peer_stock_name",
+    "shares_text",
+    "shares",
+    "hold_ratio_text",
+    "hold_ratio",
+    "change_text",
+    "change_shares",
+    "net_profit_parent_text",
+    "net_profit_parent",
+    "net_profit_deducted_text",
+    "net_profit_deducted",
+    "page_update_date",
+    "source",
+    "raw_hash",
+    "fetched_at",
+    "row_seq",
+]
+
+
+# ---------------------------------------------------------------------------
+# Format B Section 7 — 基金持股
+# ---------------------------------------------------------------------------
+
+F10_FOOTER_KEYWORDS = (
+    "本公司力求但不保证",
+    "真实性、准确性",
+    "投资者使用前请自行予以核实",
+    "不作为投资决策的依据",
+    "投资有风险",
+    "中国证监会指定上市公司信息披露媒体",
+    "不对因上述信息",
+    "服务不会受中断",
+)
+
+_SCALED_UNIT_RE = re.compile(r"(亿元|万元|亿股|万股|亿|万|股|元)")
+_NUMERIC_WITH_OPTIONAL_UNIT_RE = re.compile(r"^-?\d+(?:\.\d+)?(?:亿元|万元|亿股|万股|亿|万|股|元)?$")
+
+
+def _is_f10_footer_text(text: str) -> bool:
+    compact = (text or "").replace(" ", "")
+    return any(keyword in compact for keyword in F10_FOOTER_KEYWORDS)
+
+
+def _scaled_header_multiplier(header: str) -> int:
+    compact = (header or "").replace(" ", "")
+    m = re.search(r"[（(](?P<unit>亿元|万元|亿股|万股|股|元|亿|万)[）)]", compact)
+    if not m:
+        return 1
+    unit = m.group("unit")
+    if unit == "亿股":
+        unit = "亿"
+    elif unit == "万股":
+        unit = "万"
+    return SCALED_UNIT_MAP.get(unit, 1)
+
+
+def _to_scaled_int_with_header_unit(text: str, header: str) -> tuple[Optional[int], Optional[str]]:
+    raw = (text or "").strip().replace(",", "").replace("，", "").replace(" ", "")
+    if not raw or raw in ("-", "---", "--", "—"):
+        return None, None
+    # Explicit cell units win over the table header unit.
+    if _SCALED_UNIT_RE.search(raw):
+        normalized = raw.replace("亿股", "亿").replace("万股", "万")
+        return _to_scaled_int(normalized)
+    if not _NUMERIC_WITH_OPTIONAL_UNIT_RE.match(raw):
+        return None, None
+    val = float(raw)
+    multiplier = _scaled_header_multiplier(header)
+    return int(round(val * multiplier)), ("header" if multiplier != 1 else "base")
+
+
+def _is_fund_name_continuation(text: str) -> bool:
+    compact = (text or "").strip()
+    if not compact or _is_f10_footer_text(compact):
+        return False
+    if any(token in compact for token in ("基金名称", "持股数", "持股市值", "真实性", "投资者")):
+        return False
+    if re.match(r"^\d+[、.．]", compact):
+        return False
+    return any(
+        token in compact
+        for token in ("基金", "证券", "指数", "交易", "开放式", "联接", "股票", "混合", "债券", "ETF", "LOF")
+    )
+
+
+def _find_header_index(headers: list[str], needles: tuple[str, ...], fallback: int) -> int:
+    for idx, header in enumerate(headers):
+        if any(needle in header for needle in needles):
+            return idx
+    return fallback
+
+
+def _parse_fund_holding_cells(
+    cells: list[str], headers: list[str], last_record: Optional[dict[str, Any]]
+) -> Optional[dict[str, Any]]:
+    if not cells:
+        return None
+    if _is_f10_footer_text("".join(cells)):
+        return None
+    name_idx = _find_header_index(headers, ("基金名称",), 0)
+    shares_idx = _find_header_index(headers, ("持股数", "持仓数量", "持股数量"), 1)
+    ratio_idx = _find_header_index(headers, ("流通", "比例"), 2)
+    value_idx = _find_header_index(headers, ("市值",), 3)
+    padded = cells + [""] * (max(name_idx, shares_idx, ratio_idx, value_idx) + 1 - len(cells))
+    fund_name = padded[name_idx].strip()
+    shares_text = padded[shares_idx].strip()
+    ratio_text = padded[ratio_idx].strip()
+    value_text = padded[value_idx].strip()
+    if (
+        fund_name
+        and not any((shares_text, ratio_text, value_text))
+        and last_record is not None
+        and _is_fund_name_continuation(fund_name)
+    ):
+        last_record["fund_name"] = (last_record["fund_name"] + fund_name).strip()
+        return None
+    if not fund_name or not any((shares_text, ratio_text, value_text)):
+        return None
+    shares, _ = _to_scaled_int_with_header_unit(shares_text, headers[shares_idx] if shares_idx < len(headers) else "")
+    market_value, _ = _to_scaled_int_with_header_unit(value_text, headers[value_idx] if value_idx < len(headers) else "")
+    if shares is None or market_value is None:
+        return None
+    return {
+        "fund_name": fund_name,
+        "shares_text": shares_text,
+        "shares": shares,
+        "float_a_ratio_text": ratio_text,
+        "float_a_ratio": _to_float(ratio_text),
+        "market_value_text": value_text,
+        "market_value": market_value,
+    }
+
+
+def parse_fund_holdings_format_b(
+    text: str, *, symbol: str = "", stock_name: str = ""
+) -> pd.DataFrame:
+    """Parse Format B 段 7 基金持股."""
+
+    raw_hash = _hash(text)
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    head = PAGE_HEAD_RE.search(text or "")
+    page_code = head.group("code") if head else symbol
+    page_name = head.group("name") if head else stock_name
+    page_update_date = head.group("update_date") if head else None
+    market = _market_str(symbol or page_code)
+    report_date_text = _section_report_date_text(text, 7)
+    report_date = _normalise_date(report_date_text or "")
+
+    lines = _section_lines(text or "", 7)
+    if not lines or any("暂无数据" in ln for ln in lines):
+        return pd.DataFrame(columns=_FUND_HOLDING_COLUMNS)
+
+    records: list[dict[str, Any]] = []
+    i = 0
+    n = len(lines)
+    row_seq = 0
+    while i < n:
+        line = lines[i].rstrip()
+        if TABLE_TOP.match(line):
+            rows, end = _take_box_table_block(lines, i)
+            rows = _normalise_row_count(rows)
+            headers: list[str] = []
+            last_record: Optional[dict[str, Any]] = None
+            for cells in rows:
+                blob = "".join(cells)
+                if _is_f10_footer_text(blob):
+                    break
+                if "基金名称" in blob and ("持股" in blob or "持仓" in blob):
+                    headers = [c.strip() for c in cells]
+                    continue
+                if not headers:
+                    continue
+                rec = _parse_fund_holding_cells(cells, headers, last_record)
+                if rec is None:
+                    continue
+                row_seq += 1
+                rec.update(
+                    {
+                        "stock_code": page_code,
+                        "stock_name": page_name,
+                        "market": market,
+                        "report_date": report_date,
+                        "report_date_text": report_date_text,
+                        "page_update_date": page_update_date,
+                        "source": "tdx_f10",
+                        "raw_hash": raw_hash,
+                        "fetched_at": fetched_at,
+                        "row_seq": row_seq,
+                    }
+                )
+                records.append(rec)
+                last_record = rec
+            i = end
+            continue
+
+        if "基金名称" in line and ("持股" in line or "持仓" in line):
+            col_starts = _column_visual_starts(line)
+            headers = _slice_by_visual_cols(line, col_starts)
+            last_record = records[-1] if records else None
+            i += 1
+            while i < n:
+                data_line = lines[i].rstrip()
+                if not data_line.strip() or FORMAT_B_DASH_RE.match(data_line.strip()):
+                    i += 1
+                    continue
+                if _is_f10_footer_text(data_line):
+                    break
+                if data_line.startswith("【"):
+                    break
+                cells = _slice_by_visual_cols(data_line, col_starts)
+                rec = _parse_fund_holding_cells(cells, headers, last_record)
+                if rec is not None:
+                    row_seq += 1
+                    rec.update(
+                        {
+                            "stock_code": page_code,
+                            "stock_name": page_name,
+                            "market": market,
+                            "report_date": report_date,
+                            "report_date_text": report_date_text,
+                            "page_update_date": page_update_date,
+                            "source": "tdx_f10",
+                            "raw_hash": raw_hash,
+                            "fetched_at": fetched_at,
+                            "row_seq": row_seq,
+                        }
+                    )
+                    records.append(rec)
+                    last_record = rec
+                i += 1
+            continue
+        i += 1
+
+    return pd.DataFrame(records, columns=_FUND_HOLDING_COLUMNS)
+
+
+_FUND_HOLDING_COLUMNS = [
+    "stock_code",
+    "stock_name",
+    "market",
+    "report_date",
+    "report_date_text",
+    "fund_name",
+    "shares_text",
+    "shares",
+    "float_a_ratio_text",
+    "float_a_ratio",
+    "market_value_text",
+    "market_value",
+    "page_update_date",
+    "source",
+    "raw_hash",
+    "fetched_at",
+    "row_seq",
+]
+
+
+# ---------------------------------------------------------------------------
 # Combined view — parse_research
 # ---------------------------------------------------------------------------
 
@@ -1021,13 +1979,14 @@ _TRADE_COLUMNS = [
 def parse_research(
     text: str, *, symbol: str = "", stock_name: str = ""
 ) -> dict[str, Any]:
-    """Parse all four sections in one call.
+    """Parse all supported 「股东研究」 sections in one call.
 
-    Returns a dict with keys: ``page``, ``controlling``, ``plans``, ``trades``,
-    ``holders``, ``periods``. ``page`` carries the resolved code/name and
-    raw hash; the others are the per-section outputs.
+    ``trades`` preserves the legacy Format A section-3 schema. Format B-only
+    sections are exposed through separate keys so existing callers do not
+    accidentally write richer tables into the legacy schema.
     """
 
+    fmt = detect_f10_format(text)
     holders, periods = parse_holders_auto(text, symbol=symbol, stock_name=stock_name)
     head = PAGE_HEAD_RE.search(text or "")
     page = {
@@ -1045,8 +2004,30 @@ def parse_research(
         ),
         "plans": parse_shareholder_plans(text, symbol=symbol, stock_name=stock_name),
         "trades": parse_shareholder_trades(text, symbol=symbol, stock_name=stock_name),
+        "trades_b": (
+            parse_shareholder_trades_format_b(text, symbol=symbol, stock_name=stock_name)
+            if fmt == "b"
+            else pd.DataFrame(columns=_TRADE_B_COLUMNS)
+        ),
         "holders": holders,
         "periods": periods,
+        "holder_count_history": (
+            parse_holder_count_history_format_b(text, symbol=symbol, stock_name=stock_name)
+            if fmt == "b"
+            else pd.DataFrame(columns=_HOLDER_COUNT_COLUMNS)
+        ),
+        "common_major_holder_stocks": (
+            parse_common_major_holder_stocks_format_b(
+                text, symbol=symbol, stock_name=stock_name
+            )
+            if fmt == "b"
+            else pd.DataFrame(columns=_COMMON_MAJOR_HOLDER_COLUMNS)
+        ),
+        "fund_holdings": (
+            parse_fund_holdings_format_b(text, symbol=symbol, stock_name=stock_name)
+            if fmt == "b"
+            else pd.DataFrame(columns=_FUND_HOLDING_COLUMNS)
+        ),
     }
 
 
@@ -1124,7 +2105,7 @@ def _parse_format_b_period_block(
     kind = head_m.group("kind")
     holder_set = "free" if kind == "十大流通股东" else "all"
     period: dict[str, Any] = {
-        "report_date": head_m.group("report_date"),
+        "report_date": _normalise_date(head_m.group("report_date")),
         "holder_set": holder_set,
         "a_share_holder_count_text": None,
         "a_share_holder_count": None,
@@ -1707,8 +2688,14 @@ __all__ = [
     "parse_holders_format_b",
     "parse_holders_auto",
     "parse_controlling_shareholder",
+    "parse_controlling_shareholder_format_b",
     "parse_shareholder_plans",
+    "parse_shareholder_plans_format_b",
     "parse_shareholder_trades",
+    "parse_shareholder_trades_format_b",
+    "parse_holder_count_history_format_b",
+    "parse_common_major_holder_stocks_format_b",
+    "parse_fund_holdings_format_b",
     "parse_research",
     "detect_f10_format",
     "fetch_holders",

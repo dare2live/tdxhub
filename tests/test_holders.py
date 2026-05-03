@@ -15,19 +15,65 @@ import pandas as pd
 import pytest
 
 from tdxhub.holders import (
+    parse_common_major_holder_stocks_format_b,
     parse_controlling_shareholder,
+    parse_controlling_shareholder_format_b,
+    parse_fund_holdings_format_b,
+    parse_holder_count_history_format_b,
     parse_holders,
     parse_research,
     parse_shareholder_plans,
+    parse_shareholder_plans_format_b,
     parse_shareholder_trades,
+    parse_shareholder_trades_format_b,
 )
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "holders"
+FIXTURE_DIR_B = Path(__file__).parent / "fixtures" / "holders_b"
+
+FORMAT_B_FUND_HOLDING_TEXT = """股东研究☆ ◇600519 贵州茅台 更新日期：2026-04-28◇ 通达信沪深京F10
+【7.基金持股】截止日期：2025-12-31
+┌────────────────────┬──────┬───────┬───────┐
+│基金名称                                │持股数(股)│占流通A股比(%)│持股市值(元)│
+├────────────────────┼──────┼───────┼───────┤
+│中国工商银行股份有限公司－华泰柏瑞沪深300│456.64万  │0.36          │66.22亿     │
+│交易型开放式指数证券投资基金            │          │              │            │
+│国泰基金管理有限公司                    │12.34万   │0.01          │1.79亿      │
+└────────────────────┴──────┴───────┴───────┘
+"""
+
+FORMAT_B_FUND_HOLDING_HEADER_UNIT_TEXT = """股东研究☆ ◇688809 晶华微 更新日期：2026-04-28◇ 通达信沪深京F10
+【7.基金持股】截止日期：2025-12-31
+┌────────────────────┬──────┬───────┬───────┐
+│基金名称                                │持股数(万股)│占流通A股比(%)│持股市值(万元)│
+├────────────────────┼──────┼───────┼───────┤
+│华夏中证1000交易型开放式指数证券投资基金│0.97        │0.02          │30.99        │
+│国泰基金管理有限公司                    │456.64万    │0.36          │66.22亿      │
+└────────────────────┴──────┴───────┴───────┘
+1、本公司力求但不保证提供的任何信息的真实性、准确性、完整性及原创性等。
+投资者使用前请自行予以核实，不作为投资决策的依据。投资有风险。
+"""
+
+FORMAT_B_FUND_HOLDING_FOOTER_ONLY_TEXT = """股东研究☆ ◇688809 晶华微 更新日期：2026-04-28◇ 通达信沪深京F10
+【7.基金持股】截止日期：2025-12-31
+基金名称                            持股数(万股) 占流通A股比(%) 持股市值(万元)
+────────────────────────────────────────────────────────
+1、本公司力求但不保证提供的任何信 息的真实性、准确 性、完整性及原创 性等，投资者使
+用前请自行予以核实，如有错漏请以 中国证监会指定上市 公司信息披露媒 体为准，本公司
+不对因上述信息全部或部分内容而引 致的盈亏承担任何责 任。
+"""
 
 
 def _load(label_code: str) -> tuple[str, str]:
     matches = [p for p in FIXTURE_DIR.iterdir() if p.name.endswith(f"_{label_code}.txt")]
     assert len(matches) == 1, f"expected exactly one fixture for {label_code}, got {matches}"
+    text = matches[0].read_text(encoding="utf-8")
+    return text, label_code
+
+
+def _load_b(label_code: str) -> tuple[str, str]:
+    matches = [p for p in FIXTURE_DIR_B.iterdir() if p.name.endswith(f"_{label_code}.txt")]
+    assert len(matches) == 1, f"expected exactly one Format B fixture for {label_code}, got {matches}"
     text = matches[0].read_text(encoding="utf-8")
     return text, label_code
 
@@ -325,6 +371,23 @@ def test_controlling_shareholder_returns_none_when_section_absent():
     assert rec is None
 
 
+def test_format_b_controlling_shareholder_keeps_control_chain():
+    text, code = _load_b("600519")
+    rec = parse_controlling_shareholder_format_b(text, symbol=code)
+    assert rec["primary_shareholder_name"] == "中国贵州茅台酒厂（集团）有限责任公司"
+    assert rec["primary_shareholder_ratio"] == pytest.approx(54.40)
+    assert rec["actual_controller_name"] == "贵州省人民政府国有资产监督管理委员会"
+    assert rec["actual_controller_ratio"] == pytest.approx(48.96)
+    assert "→90%中国贵州茅台酒厂" in rec["control_chain_text"]
+
+
+def test_controlling_shareholder_auto_dispatches_format_b():
+    text, code = _load_b("300750")
+    rec = parse_controlling_shareholder(text, symbol=code)
+    assert rec["primary_shareholder_name"] == "厦门瑞庭投资有限公司"
+    assert "曾毓群→55%厦门瑞庭" in rec["control_chain_text"]
+
+
 # ---------------------------------------------------------------------------
 # Section 2 — 股东增减持计划
 # ---------------------------------------------------------------------------
@@ -415,6 +478,171 @@ def test_shareholder_trades_signed_change_for_decrease():
     assert (sells["shares_change"] < 0).all()
 
 
+def test_format_b_shareholder_trades_parse_period_price_and_method():
+    text, code = _load_b("600519")
+    df = parse_shareholder_trades_format_b(text, symbol=code)
+    assert len(df) == 3
+    first = df.iloc[0]
+    assert first["change_period_text"] == "2025.10.21-2025.12.26"
+    assert first["change_start_date"] == "2025-10-21"
+    assert first["change_end_date"] == "2025-12-26"
+    assert first["change_date"] == "2025-12-26"
+    assert first["holder_name"] == "中国贵州茅台酒厂（集团）有限责任公司"
+    assert first["shares_change"] == 1_274_200
+    assert first["average_price"] == pytest.approx(1443.14)
+    assert first["shares_after"] == 681_282_900
+    assert first["change_method"] == "二级市场买卖"
+
+
+def test_format_b_shareholder_trades_join_wrapped_names_and_signed_decrease():
+    text, code = _load_b("300750")
+    df = parse_shareholder_trades_format_b(text, symbol=code)
+    assert len(df) > 40
+    first = df.iloc[0]
+    assert first["holder_name"] == "宁波联合创新新能源投资管理合伙企业（有限合伙）"
+    assert first["shares_change"] == -58_000_000
+    assert first["change_method"] == "询价转让"
+    assert (df[df["holder_name"].str.contains("Mirae Asset", regex=False)]["holder_name"]
+            .iloc[0].endswith("Co.Ltd"))
+
+
+def test_format_b_holder_count_history_parses_latest_row():
+    text, code = _load_b("600519")
+    df = parse_holder_count_history_format_b(text, symbol=code)
+    assert len(df) >= 60
+    row = df.iloc[0]
+    assert row["report_date"] == "2026-03-31"
+    assert row["holder_count"] == 243_159
+    assert row["holder_count_change"] == -12_733
+    assert row["holder_count_change_pct"] == pytest.approx(-4.98)
+    assert row["avg_float_shares"] == 5_150
+    assert row["avg_float_shares_change_pct"] == pytest.approx(5.24)
+    assert row["close_price"] == pytest.approx(1450.00)
+
+
+def test_date_sanity_sets_future_artifacts_to_none():
+    text = """股东研究☆ ◇600519 贵州茅台 更新日期：2026-04-28◇ 通达信沪深京F10
+【5.股东人数变化】
+┌─────┬──────┬──────┬──────┬───────┬───────┬────┐
+│截止日期  │股东人数(户)│变动户数(户)│ 变动比率(%)│人均流通股(股)│ 较上期变化(%)│股价(元)│
+├─────┼──────┼──────┼──────┼───────┼───────┼────┤
+│2232-02-26│        1000│          10│        1.00│       1000.00│          1.00│   10.00│
+└─────┴──────┴──────┴──────┴───────┴───────┴────┘
+"""
+    df = parse_holder_count_history_format_b(text, symbol="600519")
+    assert len(df) == 1
+    assert df.iloc[0]["report_date"] is None
+    assert df.iloc[0]["report_date_text"] == "2232-02-26"
+
+
+def test_format_b_shareholder_plans_parse_wrapped_rows_and_amount_bounds():
+    text, code = _load_b("600519")
+    df = parse_shareholder_plans_format_b(text, symbol=code)
+    assert len(df) == 1
+    row = df.iloc[0]
+    assert row["announce_date"] == "2025-12-30"
+    assert row["first_announce_date"] == "2025-08-30"
+    assert row["subject"] == "中国贵州茅台酒厂（集团）有限责任公司"
+    assert row["direction"] == "增持计划"
+    assert row["progress"] == "完成"
+    assert row["start_date"] == "2025-09-01"
+    assert row["end_date"] == "2026-02-28"
+    assert row["target_amount_min"] == 3_000_000_000
+    assert row["target_amount_max"] == 3_300_000_000
+    assert "集中竞价" in row["trade_method"]
+
+
+def test_format_b_shareholder_plans_filters_empty_shell_rows():
+    text, code = _load_b("300750")
+    df = parse_shareholder_plans(text, symbol=code)
+    assert len(df) == 2
+    assert df.iloc[0]["subject"] == "宁波联合创新新能源投资管理合伙企业（有限合伙）"
+    assert df.iloc[0]["target_shares"] == 58_000_000
+    assert df.iloc[0]["target_ratio"] == pytest.approx(1.27)
+    assert df.iloc[1]["subject"] == "黄世霖"
+    assert (df[["subject", "direction", "progress"]].fillna("").agg("".join, axis=1) != "").all()
+
+
+def test_format_b_common_major_holder_stocks_parse_real_fixture():
+    text, code = _load_b("601398")
+    df = parse_common_major_holder_stocks_format_b(text, symbol=code)
+    assert len(df) == 31
+    first = df.iloc[0]
+    assert first["report_date"] == "2025-12-31"
+    assert first["report_date_text"] == "2025-12-31"
+    assert first["major_holder_name"] == "中央汇金投资有限责任公司"
+    assert first["peer_stock_code"] == "601988"
+    assert first["peer_stock_name"] == "中国银行"
+    assert first["shares"] == 188_792_000_000
+    assert first["hold_ratio"] == pytest.approx(58.59)
+    assert first["change_shares"] == 0
+    assert first["net_profit_parent"] == 243_021_000_000
+    changed = df[df["peer_stock_code"] == "600028"].iloc[0]
+    assert changed["major_holder_name"] == "香港中央结算(代理人)有限公司"
+    assert changed["change_text"] == "-1.63亿"
+    assert changed["change_shares"] == -163_000_000
+
+
+def test_format_b_common_major_holder_future_date_preserves_text():
+    text = """股东研究☆ ◇601398 工商银行 更新日期：2026-04-28◇ 通达信沪深京F10
+【6.同大股东个股】截止日期：2232-02-26
+中央汇金投资有限责任公司（共1家）
+排名   证券代码     证券简称   持股数(股)      占比(%)     增减情况 归母净利润(元) 扣非净利润(元)
+─────────────────────────────────────────────────
+1        601988     中国银行    1887.92亿        58.59         不变      2430.21亿      2429.12亿
+"""
+    df = parse_common_major_holder_stocks_format_b(text, symbol="601398")
+    assert len(df) == 1
+    assert df.iloc[0]["report_date"] is None
+    assert df.iloc[0]["report_date_text"] == "2232-02-26"
+
+
+def test_format_b_fund_holdings_parse_box_table_and_wrapped_name():
+    df = parse_fund_holdings_format_b(FORMAT_B_FUND_HOLDING_TEXT, symbol="600519")
+    assert len(df) == 2
+    first = df.iloc[0]
+    assert first["report_date"] == "2025-12-31"
+    assert first["fund_name"] == "中国工商银行股份有限公司－华泰柏瑞沪深300交易型开放式指数证券投资基金"
+    assert first["shares_text"] == "456.64万"
+    assert first["shares"] == 4_566_400
+    assert first["float_a_ratio"] == pytest.approx(0.36)
+    assert first["market_value_text"] == "66.22亿"
+    assert first["market_value"] == 6_622_000_000
+
+
+def test_format_b_fund_holdings_header_units_and_footer_disclaimer():
+    df = parse_fund_holdings_format_b(FORMAT_B_FUND_HOLDING_HEADER_UNIT_TEXT, symbol="688809")
+    assert len(df) == 2
+    first = df.iloc[0]
+    second = df.iloc[1]
+    assert first["fund_name"] == "华夏中证1000交易型开放式指数证券投资基金"
+    assert first["shares_text"] == "0.97"
+    assert first["shares"] == 9_700
+    assert first["market_value_text"] == "30.99"
+    assert first["market_value"] == 309_900
+    assert second["shares_text"] == "456.64万"
+    assert second["shares"] == 4_566_400
+    assert second["market_value_text"] == "66.22亿"
+    assert second["market_value"] == 6_622_000_000
+    assert not df["fund_name"].str.contains("真实性|投资有风险", regex=True).any()
+
+
+def test_format_b_fund_holdings_footer_only_is_not_record():
+    df = parse_fund_holdings_format_b(FORMAT_B_FUND_HOLDING_FOOTER_ONLY_TEXT, symbol="688809")
+    assert df.empty
+    assert "fund_name" in df.columns
+
+
+def test_format_b_extra_sections_empty_with_stable_columns():
+    text, code = _load_b("600519")
+    common = parse_common_major_holder_stocks_format_b(text, symbol=code)
+    funds = parse_fund_holdings_format_b(text, symbol=code)
+    assert common.empty
+    assert funds.empty
+    assert "major_holder_name" in common.columns
+    assert "fund_name" in funds.columns
+
+
 # ---------------------------------------------------------------------------
 # parse_research combined view
 # ---------------------------------------------------------------------------
@@ -423,10 +651,31 @@ def test_shareholder_trades_signed_change_for_decrease():
 def test_parse_research_returns_all_sections():
     text, code = _load("600519")
     res = parse_research(text, symbol=code)
-    assert set(res.keys()) == {"page", "controlling", "plans", "trades", "holders", "periods"}
+    assert set(res.keys()) == {
+        "page",
+        "controlling",
+        "plans",
+        "trades",
+        "trades_b",
+        "holders",
+        "periods",
+        "holder_count_history",
+        "common_major_holder_stocks",
+        "fund_holdings",
+    }
     assert res["page"]["stock_code"] == "600519"
     assert res["page"]["stock_name"] == "贵州茅台"
     assert res["controlling"]["primary_shareholder_name"] == "中国贵州茅台酒厂(集团)有限责任公司"
     assert len(res["plans"]) == 1
     assert len(res["trades"]) == 2
     assert (res["periods"]["holder_set"] == "free").sum() == 4
+    assert res["trades_b"].empty
+    assert res["holder_count_history"].empty
+
+
+def test_parse_research_format_b_adds_rich_section_keys():
+    text, code = _load_b("601398")
+    res = parse_research(text, symbol=code)
+    assert len(res["holder_count_history"]) > 0
+    assert len(res["common_major_holder_stocks"]) == 31
+    assert res["fund_holdings"].empty
