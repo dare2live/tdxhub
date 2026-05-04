@@ -1,15 +1,22 @@
 import asyncio
+import csv
 import glob
 from functools import partial
 from pathlib import Path
 
-import pandas as pd
-
 from tdxhub.logger import logger
 
 
-def txt2csv(infile: str, outfile: str = None) -> pd.DataFrame:
-    """通达信导出文件转换为 Pandas 可用的 csv 文件
+def _parse_number(value: str):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return value
+    return int(number) if number.is_integer() else number
+
+
+def txt2csv(infile: str, outfile: str = None) -> list[dict]:
+    """通达信导出文件转换为 csv records.
 
     :param infile: 通达信导出的 txt 文件路径
     :param outfile: 转换后的目标 csv 文件路径
@@ -17,19 +24,35 @@ def txt2csv(infile: str, outfile: str = None) -> pd.DataFrame:
 
     try:
         names = ['date', 'open', 'high', 'low', 'close', 'volume', 'amount']
-        df = pd.read_csv(infile, names=names, header=2, skipfooter=1, index_col='date', engine='python', encoding='gbk')
+        lines = Path(infile).read_text(encoding='gbk').splitlines()
+        rows = []
+        for raw in lines[3:-1]:
+            values = next(csv.reader([raw]))
+            if len(values) != len(names):
+                continue
+            item = dict(zip(names, values))
+            for key in names[1:]:
+                item[key] = _parse_number(item[key])
+            rows.append(item)
+
+        if not rows:
+            raise ValueError(f'no rows parsed from {infile}')
 
         # 传参 outfile 目录存在则写文件
         outfile = outfile if outfile else infile.replace('.txt', '.csv')
-        Path(outfile).parent.is_dir() and df.to_csv(outfile)
+        if Path(outfile).parent.is_dir():
+            with open(outfile, 'w', newline='', encoding='utf-8') as fp:
+                writer = csv.DictWriter(fp, fieldnames=names)
+                writer.writeheader()
+                writer.writerows(rows)
 
-        return df
+        return rows
     except FileNotFoundError as ex:
         logger.error(f'输入文件不存在: {infile}')
-        return pd.DataFrame(None)
+        return []
     except (ValueError, TypeError) as ex:
         logger.error(f'无法解析输入文件: {infile}')
-        return pd.DataFrame(None)
+        return []
 
 
 async def covert(src, dst):
