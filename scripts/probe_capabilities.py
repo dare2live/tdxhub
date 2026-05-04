@@ -57,24 +57,16 @@ def _probe(name: str, fn, *, timeout: int = 30) -> dict:
 
 
 def _summarize(result):
-    """返回 (ok: bool, info: dict|str). 兼容 DataFrame / list / dict / scalar."""
-    try:
-        import pandas as pd
-        if isinstance(result, pd.DataFrame):
-            if result.empty:
-                return False, {"shape": [0, 0], "cols": list(result.columns)}
-            sample = result.iloc[0].to_dict() if len(result) > 0 else {}
-            # 简化采样: 只保留前 6 列, 避免 dump 太多
-            sample_short = dict(list(sample.items())[:6])
-            return True, {
-                "shape": list(result.shape),
-                "cols": list(result.columns)[:20],
-                "sample_first_row": sample_short,
-            }
-    except Exception:
-        pass
+    """返回 (ok: bool, info: dict|str). 兼容 records / dict / scalar."""
     if isinstance(result, list):
-        return bool(result), {"count": len(result), "first": str(result[0])[:120] if result else None}
+        first = result[0] if result else None
+        if isinstance(first, dict):
+            return bool(result), {
+                "count": len(result),
+                "keys": list(first.keys())[:20],
+                "sample_first_row": dict(list(first.items())[:6]),
+            }
+        return bool(result), {"count": len(result), "first": str(first)[:120] if first is not None else None}
     if isinstance(result, dict):
         return bool(result), {"keys": list(result.keys())[:20]}
     return result is not None, {"value": str(result)[:200]}
