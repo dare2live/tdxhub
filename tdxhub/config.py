@@ -7,7 +7,7 @@ from tdxhub.consts import GP_HOSTS
 from tdxhub.consts import HQ_HOSTS
 from tdxhub.logger import logger
 from tdxhub.server import bestip
-from tdxhub.utils import get_config_path
+from tdxhub.paths import get_config_path
 
 __all__ = ['set', 'get', 'copy', 'update', 'settings']
 

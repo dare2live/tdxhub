@@ -161,11 +161,11 @@ r = Reader.factory(market="std", tdxdir="C:/通达信")
 - 宏观经济数据
 
 ### ❌ tdxhub 没有, 必须走其他源
-- 龙虎榜 → 东财 datacenter-web
-- 资金流 → 东财 datacenter-web
-- QFII 持仓 → 东财 datacenter-web
-- 融资融券 → 东财 datacenter-web
-- 机构调研 → 东财 datacenter-web
+- 龙虎榜 → 妙想/aif10
+- 资金流 → 已下架或重新评估
+- QFII 持仓 → 妙想/aif10
+- 融资融券 → akshare 或妙想/aif10
+- 机构调研 → 妙想/aif10
 - 主营构成 / 估值分位 / 一致预期 → 妙想 F10 (`miaoxiang/`)
 
 ---
@@ -189,6 +189,6 @@ python scripts/probe_capabilities.py --capability bars
 
 ## 数据源 registry 集成 (chunky-monkey-v2)
 
-参考 [chunky-monkey-v2/docs/architecture-redesign-2026-04.md](https://github.com/dare2live/chunky-monkey-v2/blob/main/docs/architecture-redesign-2026-04.md) §6.1 适配层.
+参考 `chunky-monkey-v2/docs/architecture-redesign-2026-04.md` §6.1 适配层.
 
-每个 capability 在 chunky-monkey-v2 的 `data_sources/sources/tdxhub.py` 里都对应一个 `Capability(name, freshness, ...)`. registry 按优先级 `tdxhub > 妙想 > 东财 datacenter-web > akshare` 自动 failover.
+每个 capability 在 chunky-monkey-v2 的 `data_sources/sources/tdxhub.py` 里都对应一个 `Capability(name, freshness, ...)`. registry 按优先级 `tdxhub > 妙想/aif10 > akshare` 自动 failover.
