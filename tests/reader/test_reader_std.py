@@ -47,4 +47,4 @@ def test_daily_hfq_is_disabled_in_records_mode(reader, symbol, adjust):
 def test_minute(reader, symbol):
     for suffix in ('1', '5'):
         result = reader.minute(symbol=symbol, suffix=suffix)
-        assert not result.empty
+        assert is_empty(result) is False

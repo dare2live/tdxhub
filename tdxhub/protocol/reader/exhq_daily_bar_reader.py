@@ -2,8 +2,6 @@
 import struct
 from pathlib import Path
 
-import pandas as pd
-
 from tdxhub.protocol.reader.base_reader import BaseReader
 from tdxhub.protocol.reader.base_reader import TdxFileNotFoundException
 
@@ -29,22 +27,15 @@ class TdxExHqDailyBarReader(BaseReader):
 
     def get_df(self, code_or_file, **kwargs):
         """
-        转换 pd.DataFrame 格式
+        转换 records 格式
         :param code_or_file:
         :param kwargs:
         :return:
         """
-        columns = ["date", "open", "high", "low", "close", "amount", "volume", "jiesuan", "hk_stock_amount"]  # noqa
-        data = [self._df_convert(row) for row in self.parse_data_by_file(code_or_file)]
-
-        df = pd.DataFrame(data=data, columns=columns)
-        df.index = pd.to_datetime(df.date)
-        df = df[["open", "high", "low", "close", "amount", "volume", "jiesuan", "hk_stock_amount"]]  # noqa
-
-        return df
+        return [self._record_convert(row) for row in self.parse_data_by_file(code_or_file)]
 
     @staticmethod
-    def _df_convert(row):
+    def _record_convert(row):
         """
 
         :param row:
@@ -54,6 +45,14 @@ class TdxExHqDailyBarReader(BaseReader):
         datestr = t_date[:4] + "-" + t_date[4:6] + "-" + t_date[6:]
 
         (hk_stock_amount,) = struct.unpack("<f", struct.pack("<I", row[5]))
-        new_row = (datestr, row[1], row[2], row[3], row[4], row[5], row[6], row[7], hk_stock_amount)
-
-        return new_row
+        return {
+            "date": datestr,
+            "open": row[1],
+            "high": row[2],
+            "low": row[3],
+            "close": row[4],
+            "amount": row[5],
+            "volume": row[6],
+            "jiesuan": row[7],
+            "hk_stock_amount": hk_stock_amount,
+        }

@@ -1,8 +1,6 @@
 # cython: language_level=3
 from pathlib import Path
 
-import pandas as pd
-
 from tdxhub.protocol.logger import logger
 from tdxhub.protocol.reader.base_reader import BaseReader
 from tdxhub.protocol.reader.base_reader import TdxFileNotFoundException
@@ -89,7 +87,7 @@ class TdxDailyBarReader(BaseReader):
 
         :param code_or_file:
         :param exchange:
-        :return:
+        :return: records
         """
         if not exchange:
             return self.get_df_by_file(code_or_file)
@@ -112,13 +110,7 @@ class TdxDailyBarReader(BaseReader):
             raise NotImplementedError
 
         coefficient = self.SECURITY_COEFFICIENT[security_type]
-        data = [self._df_convert(row_, coefficient) for row_ in self.parse_data_by_file(filename)]
-
-        df = pd.DataFrame(data=data, columns=["date", "open", "high", "low", "close", "amount", "volume"])
-        df.index = pd.to_datetime(df.date, errors="coerce")
-        # df.index = pd.to_datetime(df.date)
-
-        return df[["open", "high", "low", "close", "amount", "volume"]]
+        return [self._record_convert(row_, coefficient) for row_ in self.parse_data_by_file(filename)]
 
     def get_df_by_code(self, code, exchange):
         """
@@ -132,7 +124,7 @@ class TdxDailyBarReader(BaseReader):
         return self.get_df_by_file(name)
 
     @staticmethod
-    def _df_convert(row_, coefficient):
+    def _record_convert(row_, coefficient):
         """
         源数据转换
 
@@ -143,17 +135,15 @@ class TdxDailyBarReader(BaseReader):
         t_date = str(row_[0])
         datestr = t_date[:4] + "-" + t_date[4:6] + "-" + t_date[6:]
 
-        new_row = (
-            datestr,
-            row_[1] * coefficient[0],  # * 0.01 * 1000 , zipline need 1000 times to original price
-            row_[2] * coefficient[0],
-            row_[3] * coefficient[0],
-            row_[4] * coefficient[0],
-            row_[5],
-            row_[6] * coefficient[1],
-        )
-
-        return new_row
+        return {
+            "date": datestr,
+            "open": row_[1] * coefficient[0],
+            "high": row_[2] * coefficient[0],
+            "low": row_[3] * coefficient[0],
+            "close": row_[4] * coefficient[0],
+            "amount": row_[5],
+            "volume": row_[6] * coefficient[1],
+        }
 
     def get_security_type(self, filename):
         """

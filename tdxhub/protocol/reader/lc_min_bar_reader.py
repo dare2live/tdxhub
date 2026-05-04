@@ -2,8 +2,6 @@
 from collections import OrderedDict
 from pathlib import Path
 
-import pandas as pd
-
 from tdxhub.protocol.reader.base_reader import BaseReader
 from tdxhub.protocol.reader.base_reader import TdxFileNotFoundException
 
@@ -67,10 +65,6 @@ class TdxLCMinBarReader(BaseReader):
         """
         :param code_or_file:
         :param kwargs:
-        :return:
+        :return: records
         """
-        df = pd.DataFrame(data=self.parse_data_by_file(code_or_file))
-        df.index = pd.to_datetime(df.date)
-        df = df[["open", "high", "low", "close", "amount", "volume"]]
-
-        return df
+        return self.parse_data_by_file(code_or_file)

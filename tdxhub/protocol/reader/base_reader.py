@@ -33,7 +33,7 @@ class BaseReader:
 
     def get_df(self, code_or_file, exchange=None):
         """
-        转换 pd.DataFrame
+        转换 records
         :param code_or_file:
         :param exchange:
         """

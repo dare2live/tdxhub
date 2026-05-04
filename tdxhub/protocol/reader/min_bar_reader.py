@@ -2,8 +2,6 @@
 from collections import OrderedDict
 from pathlib import Path
 
-import pandas as pd
-
 from tdxhub.protocol.reader.base_reader import BaseReader
 from tdxhub.protocol.reader.base_reader import TdxFileNotFoundException
 
@@ -74,12 +72,8 @@ class TdxMinBarReader(BaseReader):
 
     def get_df(self, code_or_file, **kwargs):
         """
-        转换 pd.DataFrame
+        转换 records
         :param code_or_file: 股票代码或者文件名
         :return:
         """
-        df = pd.DataFrame(data=self.parse_data_by_file(code_or_file))
-        df.index = pd.to_datetime(df.date)
-        df = df[["open", "high", "low", "close", "amount", "volume"]]
-
-        return df
+        return self.parse_data_by_file(code_or_file)
