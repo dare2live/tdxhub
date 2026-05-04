@@ -42,7 +42,7 @@ from tdxhub.affair import Affair
 
 - `Affair.files()` 获取远程财务文件清单
 - `Affair.fetch()` 下载单个或全部文件
-- `Affair.parse()` 解析 gpcw 财务文件为 DataFrame
+- `Affair.parse()` 解析 gpcw 财务文件为 records (`list[dict]`)
 
 ### 4. 本地离线数据读取
 

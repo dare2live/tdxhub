@@ -41,7 +41,7 @@ client = Quotes.factory(market='std', multithread=True, heartbeat=True, bestip=F
 
 返回值：
 
-- pd.DataFrame
+- records (`list[dict]`)
 
 **调用方法：**
 

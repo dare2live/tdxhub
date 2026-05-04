@@ -124,9 +124,7 @@ r = Reader.factory(market="std", tdxdir="C:/通达信")
 |---|---|---|
 | `protocol/reader/min_bar_reader.py:43` | P0 | `Exception(...,filename)` 字符串格式化错, 改 f-string |
 | `protocol/reader/daily_bar_reader.py:80,106` | P0 | 同上 (2 处) |
-| `tools/reversion.py:78` | P0 | bare `except:` 吞 KeyboardInterrupt, 改 specific |
-| `tools/reversion.py:18,43,104,112` | P1 | `fillna(method=)` pandas 2.2+ 弃用 → `.ffill()/.bfill()` |
-| `utils/adjust.py:99,125` | P1 | 同上 |
+| 旧复权 helper | P1 | 已从当前 fork 移除, 复权能力走在线 `xdxr`/records 流程 |
 | `quotes.py:136` | P1 | `value.all().empty` 逻辑混乱 → `value.empty` |
 
 ---

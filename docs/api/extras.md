@@ -12,7 +12,7 @@
 
 返回值：
 
-- pd.DataFrame
+- records (`list[dict]`)
 
 **调用方法：**
 
@@ -43,9 +43,9 @@ date
 [168 rows x 7 columns]
 ```
 
-## 02. TDX导出数据转为 pandas 可用的 csv 文件
+## 02. TDX导出数据转为标准 csv 文件
 
-将TDX通过数据工具导出的txt文件转换为标准的csv文件(其实不转回pandas 也可以读取，只是使用时候比较麻烦)
+将TDX通过数据工具导出的txt文件转换为标准的csv文件，并返回 records。
 
 **参数说明: **
 
@@ -54,7 +54,7 @@ date
 
 返回值：
 
-- pd.DataFrame
+- records (`list[dict]`)
 
 **调用方法：**
 
@@ -64,9 +64,9 @@ from tdxhub.tools import tdx2csv
 tdx2csv.txt2csv(infile='sz#000001.txt', outfile='sz#000001.csv')
 ```
 
-## 03. TDX导出数据转为 pandas 可用的 csv 文件(批量异步接口)
+## 03. TDX导出数据转为标准 csv 文件(批量异步接口)
 
-将TDX通过数据工具导出的txt文件转换为标准的csv文件(其实不转回pandas 也可以读取，只是使用时候比较麻烦)
+将TDX通过数据工具导出的txt文件转换为标准的csv文件。
 
 **参数说明: **
 
