@@ -10,12 +10,12 @@ class HistoryFinancialReader(BaseReader):
 
     def get_df(self, data_file, **kwargs):
         """
-        读取历史财务数据文件，并返回pandas结果 ， 类似gpcw20171231.zip格式，具体字段含义参考
+        读取历史财务数据文件，并返回 records，类似gpcw20171231.zip格式，具体字段含义参考
 
         https://github.com/rainx/tdxpy/issues/133
 
         :param data_file: 数据文件地址， 数据文件类型可以为 .zip 文件，也可以为解压后的 .dat
-        :return: pandas DataFrame格式的历史财务数据
+        :return: records 格式的历史财务数据
         """
 
         crawler = HistoryFinancialCrawler()
@@ -23,4 +23,4 @@ class HistoryFinancialReader(BaseReader):
         with open(data_file, "rb") as df:
             data = crawler.parse(download_file=df)
 
-        return crawler.to_df(data)
+        return crawler.to_records(data)

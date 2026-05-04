@@ -6,8 +6,6 @@ from pathlib import Path
 from struct import calcsize
 from struct import unpack
 
-import pandas as pd
-
 from ..exceptions import ValidationException
 from .base_crawler import BaseCrawler
 
@@ -199,14 +197,16 @@ class HistoryFinancialCrawler(BaseCrawler):
         return results
 
     @staticmethod
-    def to_df(data):
+    def to_records(data):
         if not data:
-            return None
+            return []
 
         col = ["code", "report_date"]
         col += [f"col{str(i).zfill(3)}" for i in range(1, len(data[0]) - 1)]
 
-        df = pd.DataFrame(data=data, columns=col)
-        df.set_index("code", inplace=True)
+        return [dict(zip(col, row)) for row in data]
 
-        return df
+    @staticmethod
+    def to_df(data):
+        """Compatibility shim for callers that still use the old method name."""
+        return HistoryFinancialCrawler.to_records(data)

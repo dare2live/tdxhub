@@ -24,7 +24,7 @@ class BaseReader(object):
 
     def get_df(self, code_or_file, exchange=None):
         """
-        转换格式为 pd.DateFrame
+        转换格式为 records
 
         :param code_or_file:
         :param exchange:

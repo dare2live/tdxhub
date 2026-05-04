@@ -7,6 +7,7 @@ import pytest
 
 from tdxhub.affair import Affair
 from tdxhub.financial.financial import Financial
+from tdxhub.financial.financial import FinancialReader
 from tdxhub.financial.financial import _field_index_for_column
 from tdxhub.financial.financial import _normalize_selected_columns
 from tdxhub.logger import logger
@@ -57,44 +58,64 @@ class TestAffair(unittest.TestCase):
         self.assertTrue(Path(self.downdir, self.files[-1]).exists())
 
 
-def test_to_df_keeps_only_requested_gpcw_columns():
+def test_to_records_keeps_only_requested_gpcw_columns():
     data = [('000001', 20260331, 1.23, 4.56)]
 
-    df = Financial.to_df(data, columns=['report_date', '基本每股收益', '每股净资产'])
+    records = Financial.to_records(data, columns=['report_date', '基本每股收益', '每股净资产'])
 
-    assert list(df.columns) == ['report_date', '基本每股收益', '每股净资产']
-    assert df.loc['000001', '基本每股收益'] == pytest.approx(1.23)
-    assert df.loc['000001', '每股净资产'] == pytest.approx(4.56)
+    assert list(records[0].keys()) == ['code', 'report_date', '基本每股收益', '每股净资产']
+    assert records[0]['code'] == '000001'
+    assert records[0]['基本每股收益'] == pytest.approx(1.23)
+    assert records[0]['每股净资产'] == pytest.approx(4.56)
 
 
-def test_to_df_can_drop_report_date_from_projection():
+def test_to_records_can_drop_report_date_from_projection():
     data = [('000001', 20260331, 1.23, 4.56)]
 
-    df = Financial.to_df(data, columns=['基本每股收益', '每股净资产'])
+    records = Financial.to_records(data, columns=['基本每股收益', '每股净资产'])
 
-    assert list(df.columns) == ['基本每股收益', '每股净资产']
-    assert df.loc['000001', '基本每股收益'] == pytest.approx(1.23)
+    assert list(records[0].keys()) == ['code', '基本每股收益', '每股净资产']
+    assert records[0]['基本每股收益'] == pytest.approx(1.23)
 
 
-def test_to_df_extends_unknown_tail_gpcw_columns_as_raw_names():
+def test_to_records_extends_unknown_tail_gpcw_columns_as_raw_names():
     data = [('000001', 20260331, *range(1, 585))]
 
-    df = Financial.to_df(data)
+    records = Financial.to_records(data)
 
-    assert list(df.columns[-4:]) == ['col581', 'col582', 'col583', 'col584']
-    assert df.loc['000001', 'col581'] == pytest.approx(581)
-    assert df.loc['000001', 'col584'] == pytest.approx(584)
+    assert list(records[0].keys())[-4:] == ['col581', 'col582', 'col583', 'col584']
+    assert records[0]['col581'] == pytest.approx(581)
+    assert records[0]['col584'] == pytest.approx(584)
 
 
 def test_raw_gpcw_columns_can_be_projected_beyond_known_mapping():
     data = [('000001', 20260331, 581.0)]
 
-    df = Financial.to_df(data, columns=['col581'])
+    records = Financial.to_records(data, columns=['col581'])
 
-    assert list(df.columns) == ['col581']
-    assert df.loc['000001', 'col581'] == pytest.approx(581.0)
+    assert list(records[0].keys()) == ['code', 'col581']
+    assert records[0]['col581'] == pytest.approx(581.0)
     assert _normalize_selected_columns(['code', 'col581']) == ('col581',)
     assert _field_index_for_column('col581') == 580
+
+
+def test_to_df_compatibility_name_returns_records():
+    data = [('000001', 20260331, 1.23)]
+
+    assert Financial.to_df(data, columns=['基本每股收益']) == [
+        {'code': '000001', '基本每股收益': pytest.approx(1.23)}
+    ]
+
+
+def test_financial_reader_to_data_returns_records(tmp_path):
+    dat_path = tmp_path / 'gpcw20260331.dat'
+    _write_gpcw_dat(dat_path, field_count=2)
+
+    records = FinancialReader.to_data(dat_path, columns=['report_date', '基本每股收益'])
+
+    assert records == [
+        {'code': '000001', 'report_date': 20260331, '基本每股收益': pytest.approx(1.0)}
+    ]
 
 
 def test_parse_rejects_raw_projection_outside_report_width(tmp_path):

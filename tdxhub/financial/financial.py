@@ -7,7 +7,6 @@ from pathlib import Path
 from struct import calcsize
 from struct import unpack
 
-import pandas as pd
 from tdxhub.protocol.hq import TdxHq_API
 
 from ..logger import logger
@@ -145,12 +144,12 @@ class FinancialReader(object):
     @staticmethod
     def to_data(filename, **kwargs):
         """
-        读取历史财务数据文件，并返回pandas结果 ， 类似 `gpcw20171231.zip` 格式，具体字段含义参考
+        读取历史财务数据文件，并返回 records，类似 `gpcw20171231.zip` 格式，具体字段含义参考
 
         https://github.com/rainx/pytdx/issues/133
 
         :param filename: 数据文件地址， 数据文件类型可以为 .zip 文件，也可以为解压后的 .dat, 可以不写扩展名. 程序自动识别
-        :return: pandas DataFrame 格式的历史财务数据
+        :return: records 格式的历史财务数据
         """
 
         crawler = Financial()
@@ -158,7 +157,7 @@ class FinancialReader(object):
         with open(filename, 'rb') as fp:
             data = crawler.parse(download_file=fp, **kwargs)
 
-        return crawler.to_df(data, **kwargs)
+        return crawler.to_records(data, **kwargs)
 
 
 class FinancialList(BaseFinancial):
@@ -365,38 +364,53 @@ class Financial(BaseFinancial):
         return rows
 
     @staticmethod
-    def to_df(data, header='zh', columns=None):
+    def to_records(data, header='zh', columns=None):
         """
-        转换数据为 pandas DataFrame 格式
+        转换数据为 records 格式
 
         :param data: 要转换的数据
         :param header: 是否中文表头
-        :return: DataFrame
+        :return: list[dict]
         """
 
-        if len(data) == 0 or len(data[0]) == 0:
-            return pd.DataFrame(data=None)
+        if not data or len(data[0]) == 0:
+            return []
 
         selected_columns = _normalize_selected_columns(columns)
-        column = ['code', 'report_date']
-
-        for i in range(1, len(data[0]) - 1):
-            column.append('col' + str(i))
-
-        df = pd.DataFrame(data=data, columns=column)
-        df.set_index('code', inplace=True)
+        records = []
 
         if selected_columns is not None:
-            df.columns = _projected_column_names(selected_columns)
-            if 'report_date' not in selected_columns and 'report_date' in df.columns:
-                df.drop(columns=['report_date'], inplace=True)
+            names = _projected_column_names(selected_columns)
+            include_report_date = 'report_date' in selected_columns
+            if not include_report_date:
+                names = [name for name in names if name != 'report_date']
 
-            logger.debug(df.shape)
-            return df
+            for row in data:
+                values = row[1:] if include_report_date else row[2:]
+                record = {'code': row[0]}
+                record.update(dict(zip(names, values)))
+                records.append(record)
+
+            logger.debug('records=%s', len(records))
+            return records
 
         if header == 'zh':
-            df.columns = _resolved_column_names(len(df.columns) - 1)
+            names = _resolved_column_names(len(data[0]) - 2)
+        else:
+            names = ['report_date']
+            for i in range(1, len(data[0]) - 1):
+                names.append('col' + str(i))
 
-        logger.debug(df.shape)
+        for row in data:
+            record = {'code': row[0]}
+            record.update(dict(zip(names, row[1:])))
+            records.append(record)
 
-        return df
+        logger.debug('records=%s', len(records))
+
+        return records
+
+    @staticmethod
+    def to_df(data, header='zh', columns=None):
+        """Compatibility shim for callers that still use the old method name."""
+        return Financial.to_records(data, header=header, columns=columns)

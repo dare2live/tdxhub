@@ -16,11 +16,17 @@ def test_block_reader_path_imports_without_tabular_dependency(monkeypatch):
     sys.meta_path.insert(0, finder)
     try:
         from tdxhub.parse import BaseParse
+        from tdxhub.financial.financial import Financial
+        from tdxhub.protocol.crawler.history_financial_crawler import HistoryFinancialCrawler
         from tdxhub.protocol.reader.block_reader import BlockReader, CustomerBlockReader
+        from tdxhub.protocol.reader.history_financial_reader import HistoryFinancialReader
         from tdxhub.reader import Reader, StdReader
         from tdxhub.tools.customize import Customize
 
         assert BaseParse
+        assert Financial
+        assert HistoryFinancialCrawler
+        assert HistoryFinancialReader
         assert BlockReader
         assert CustomerBlockReader
         assert Reader
