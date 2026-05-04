@@ -59,8 +59,8 @@ def test_block_update(custom):
 
 
 def test_block_search(custom):
-    assert custom.search(group=True).empty is False
-    assert custom.search().empty is False
+    assert custom.search(group=True)
+    assert custom.search()
 
     assert custom.search(name='龙虎榜')
     assert custom.search(name='龙虎榜', group=True)

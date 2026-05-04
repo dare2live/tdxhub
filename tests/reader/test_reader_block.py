@@ -25,7 +25,7 @@ def parse():
 ])
 def test_block(reader, symbol, expected):
     result = reader.block(symbol=symbol, debug=False)
-    assert not result.empty, f'result => {result}'
+    assert result, f'result => {result}'
 
 
 @pytest.mark.parametrize('symbol,expected', [('incon.dat', 'incon.dat')])
@@ -41,4 +41,4 @@ def test_incon(reader, parse, symbol, expected):
 ])
 def test_cfg(parse, symbol, expected):
     result = parse.cfg(expected)
-    assert not result.empty
+    assert result

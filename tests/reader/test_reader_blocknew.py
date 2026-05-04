@@ -34,4 +34,4 @@ def test_blocknew_02(reader):
     assert result
 
     result = reader.block_new()
-    assert not result.empty, result
+    assert result, result

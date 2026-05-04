@@ -1,7 +1,6 @@
 from pathlib import Path
 
-import pandas as pd
-from tdxhub.protocol.reader import BlockReader
+from tdxhub.protocol.reader.block_reader import BlockReader
 
 from tdxhub.consts import TYPE_FLATS
 from tdxhub.consts import TYPE_GROUP
@@ -20,7 +19,7 @@ class BaseParse:
 
         :param symbol:  板块文件
         :param group:   分组解析
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         suffix = Path(symbol).suffix or '.dat'
@@ -58,4 +57,4 @@ class BaseParse:
         ts = self.read_text(path)
         ls = [ll.split('|') for ll in ts.split()]
 
-        return pd.DataFrame(ls)
+        return ls

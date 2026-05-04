@@ -2,12 +2,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from tdxhub.protocol.reader import CustomerBlockReader
+from tdxhub.protocol.reader.block_reader import CustomerBlockReader
 
 from tdxhub.consts import TYPE_FLATS
 from tdxhub.consts import TYPE_GROUP
 from tdxhub.logger import logger
-from tdxhub.utils import get_stock_market
+from tdxhub.market import get_stock_market
 
 try:
     from time import time_ns
@@ -36,20 +36,21 @@ class Customize:
 
         block_data = self.search()
 
-        if block_data.empty:
+        if not block_data:
             logger.error('自定义板块数据是空的')
             return
 
         block_file = Path(self.vipdoc) / 'blocknew.cfg'
-        block_temp = block_data[block_data.blockname == name]
+        block_temp = [row for row in block_data if row.get('blockname') == name]
         block_type = ''
 
         # 删除blk文件
-        if block_temp.block_type.to_list():
-            block_type = list(set(block_temp.block_type.to_list()))[0]
+        block_types = [row.get('block_type') for row in block_temp if row.get('block_type')]
+        if block_types:
+            block_type = list(set(block_types))[0]
             [
                 Path(self.vipdoc, f'{x}.blk').unlink()
-                for x in block_temp.block_type.to_list()
+                for x in block_types
                 if Path(self.vipdoc, f'{x}.blk').is_file()
             ]
 
@@ -76,13 +77,12 @@ class Customize:
 
         if name:
             result = CustomerBlockReader().get_df(str(self.vipdoc), TYPE_GROUP)
-            result = result[result.blockname == name]
+            result = [row for row in result if row.get('blockname') == name]
 
-            if result.empty:
+            if not result:
                 return None
 
-            result = result.code_list.values
-            result = list(set(result[0].split(',')))
+            result = list(set(str(result[0].get('code_list') or '').split(',')))
 
             return result
 
@@ -106,21 +106,22 @@ class Customize:
         block_code = list(symbol)
 
         # 板块数据
-        block_data = self.search()
-        block_temp = block_data[block_data.blockname == name]
+        block_data = self.search() or []
+        block_temp = [row for row in block_data if row.get('blockname') == name]
 
         # 对于名称空的情况, 直接创建写入
-        if block_temp.empty:
-            logger.debug(f'block_temp is empty {block_temp.empty}')
+        if not block_temp:
+            logger.debug('block_temp is empty True')
             return _blocknew(self.tdxdir, name=name, symbol=list(set(symbol)))
 
         # 覆盖情况
         if not overflow:
-            block_code += block_temp.code.to_list()
+            block_code += [row.get('code') for row in block_temp if row.get('code')]
 
         # 取 blk 文件名, block_type 不为空
-        if block_temp.block_type.to_list():
-            block_type = list(set(block_temp.block_type.to_list()))[0]
+        block_types = [row.get('block_type') for row in block_temp if row.get('block_type')]
+        if block_types:
+            block_type = list(set(block_types))[0]
             logger.debug(f'发现板块文件: {block_type}')
         else:
             # block_type 为空的话

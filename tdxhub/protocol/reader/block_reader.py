@@ -3,8 +3,6 @@ import struct
 from collections import OrderedDict
 from pathlib import Path
 
-import pandas as pd
-
 from tdxhub.protocol.reader.base_reader import BaseReader
 
 """
@@ -18,15 +16,13 @@ BlockReader_TYPE_GROUP = 1
 class BlockReader(BaseReader):
     def get_df(self, name, result_type=BlockReader_TYPE_FLAT):
         """
-        转换 pd.DataFrame
+        解析板块文件并返回 records.
         :param name:
         :param result_type:
         :return:
         """
 
-        result = self.get_data(name, result_type)
-
-        return pd.DataFrame(result)
+        return self.get_data(name, result_type)
 
     @staticmethod
     def get_data(name, result_type=BlockReader_TYPE_FLAT):
@@ -102,13 +98,12 @@ class CustomerBlockReader(BaseReader):
 
     def get_df(self, name, result_type=BlockReader_TYPE_FLAT):
         """
-        转换 pd.DataFrame
+        解析自定义板块文件并返回 records.
         :param name:
         :param result_type:
         :return:
         """
-        result = self.get_data(name, result_type)
-        return pd.DataFrame(result)
+        return self.get_data(name, result_type)
 
     @staticmethod
     def get_data(name, result_type=BlockReader_TYPE_FLAT):

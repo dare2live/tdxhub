@@ -1,13 +1,7 @@
 from abc import ABC
 from pathlib import Path
 
-from tdxhub.protocol.reader import TdxExHqDailyBarReader
-from tdxhub.protocol.reader import TdxLCMinBarReader
-from tdxhub.protocol.reader import TdxMinBarReader
-
-from tdxhub.contrib.compat import MooTdxDailyBarReader
-from tdxhub.utils import get_stock_market
-from tdxhub.utils import to_data
+from tdxhub.market import get_stock_market
 
 
 class Reader(object):
@@ -50,7 +44,7 @@ class ReaderBase(ABC):
         :param symbol:
         :param subdir:
         :param suffix:
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         # 判断市场, 带#扩展市场
@@ -93,8 +87,11 @@ class StdReader(ReaderBase):
         获取日线数据
 
         :param symbol: 证券代码
-        :return: pd.dataFrame or None
+        :return: records or None
         """
+        from tdxhub.contrib.compat import MooTdxDailyBarReader
+        from tdxhub.utils import to_data
+
         symbol = Path(symbol).stem
         reader = MooTdxDailyBarReader()
         vipdoc = self.find_path(symbol=symbol, subdir='lday', suffix='day')
@@ -108,8 +105,11 @@ class StdReader(ReaderBase):
 
         :param suffix: 文件前缀
         :param symbol: 证券代码
-        :return: pd.dataFrame or None
+        :return: records or None
         """
+        from tdxhub.protocol.reader.lc_min_bar_reader import TdxLCMinBarReader
+        from tdxhub.protocol.reader.min_bar_reader import TdxMinBarReader
+
         symbol = Path(symbol).stem
         subdir = 'fzline' if str(suffix) == '5' else 'minline'
         suffix = ['lc5', '5'] if str(suffix) == '5' else ['lc1', '1']
@@ -126,7 +126,7 @@ class StdReader(ReaderBase):
         分钟线数据
 
         :param symbol: 自定义板块股票列表, 类型 list
-        :return: pd.dataFrame or Bool
+        :return: records or Bool
         """
         return self.minute(symbol, suffix=5)
 
@@ -137,7 +137,7 @@ class StdReader(ReaderBase):
         :param name: 自定义板块名称
         :param symbol: 自定义板块股票列表, 类型 list
         :param group:
-        :return: pd.dataFrame or Bool
+        :return: records or Bool
         """
         from tdxhub.tools.customize import Customize
 
@@ -154,7 +154,7 @@ class StdReader(ReaderBase):
 
         :param symbol:  板块文件
         :param group:   分组解析
-        :return: pd.dataFrame or None
+        :return: records or None
         """
         # from tdxhub.block import BlockParse
         from tdxhub.parse import BaseParse
@@ -167,13 +167,15 @@ class ExtReader(ReaderBase):
 
     def __init__(self, tdxdir=None):
         super(ExtReader, self).__init__(tdxdir)
+        from tdxhub.protocol.reader.exhq_daily_bar_reader import TdxExHqDailyBarReader
+
         self.reader = TdxExHqDailyBarReader()
 
     def daily(self, symbol=None):
         """
         获取扩展市场日线数据
 
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         vipdoc = self.find_path(symbol=symbol, subdir='lday', suffix='day')
@@ -183,7 +185,7 @@ class ExtReader(ReaderBase):
         """
         获取扩展市场分钟线数据
 
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         if not symbol:
@@ -196,7 +198,7 @@ class ExtReader(ReaderBase):
         """
         获取日线数据
 
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         vipdoc = self.find_path(symbol=symbol, subdir='fzline', suffix='lc5')
