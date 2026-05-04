@@ -14,13 +14,17 @@ class TestStdQuotes(unittest.TestCase):
 
     # 初始化工作
     def setup_class(self):
-        self.client = Quotes.factory(market='std', timeout=10, verbose=2)  # 标准市场
+        try:
+            self.client = Quotes.factory(market='std', timeout=10, verbose=2)  # 标准市场
+        except Exception as exc:
+            pytest.skip(f'live quote server unavailable: {exc!r}')
         logger.debug('初始化工作')
 
     # 退出清理工作
     def teardown_class(self):
-        self.client.client.close()
-        del self.client
+        if self.client is not None:
+            self.client.client.close()
+            del self.client
         logger.debug('退出清理工作')
 
     def test_quotes(self):
@@ -115,7 +119,10 @@ class TestStdRaises(unittest.TestCase):
 
     # 初始化工作
     def setup_class(self):
-        self.client = Quotes.factory(market='std', timeout=10, verbose=2)  # 标准市场
+        try:
+            self.client = Quotes.factory(market='std', timeout=10, verbose=2)  # 标准市场
+        except Exception as exc:
+            pytest.skip(f'live quote server unavailable: {exc!r}')
 
     def test_stock_count_raises(self):
         with pytest.raises(MootdxValidationException) as e:

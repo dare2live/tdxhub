@@ -10,7 +10,6 @@ from tdxhub.utils import to_file
 
 try:
     import click
-    from prettytable import PrettyTable
 except (ImportError, ModuleNotFoundError):
     logging.basicConfig(level=logging.WARNING)
     warnings.warn('!!! 缺少命令行依赖, 请使用次命令进行安装: pip install "tdxhub[cli]"', DeprecationWarning)
@@ -123,6 +122,11 @@ def affair(parse, fetch, downdir, output, downall, verbose, listfile):
     files = Affair.files()
 
     if listfile:
+        try:
+            from prettytable import PrettyTable
+        except (ImportError, ModuleNotFoundError) as exc:
+            raise click.ClickException('缺少表格输出依赖, 请使用 pip install "tdxhub[cli]" 安装') from exc
+
         t = PrettyTable(['filename', 'filesize', 'hash'])
         t.align['filename'] = 'l'
         t.align['filesize'] = 'l'
