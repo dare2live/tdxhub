@@ -23,7 +23,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxHq_API.get_security_quotes',
             'params': 'symbol: str | list[str]',
             'limits': '单次最多约 80 只股票',
-            'returns': 'DataFrame(code, open, high, low, price, bid1-5, ask1-5, vol, amount ...)',
+            'returns': 'records(code, open, high, low, price, bid1-5, ask1-5, vol, amount ...)',
             'category': '实时数据',
         },
         {
@@ -32,7 +32,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxHq_API.get_security_bars',
             'params': 'symbol, frequency, start=0, offset=800',
             'limits': '单次最多 800 根K线',
-            'returns': 'DataFrame(datetime, open, high, low, close, vol, amount)',
+            'returns': 'records(datetime, open, high, low, close, vol, amount)',
             'category': '历史数据',
         },
         {
@@ -41,7 +41,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxHq_API.get_index_bars',
             'params': 'symbol, frequency, start=0, offset=800',
             'limits': '单次最多 800 根K线',
-            'returns': 'DataFrame(datetime, open, high, low, close, vol, amount, up_count, down_count)',
+            'returns': 'records(datetime, open, high, low, close, vol, amount, up_count, down_count)',
             'category': '历史数据',
         },
         {
@@ -50,7 +50,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxHq_API.get_security_list',
             'params': 'market: 0=深/1=沪',
             'limits': '每页 1000 条，自动翻页',
-            'returns': 'DataFrame(code, volunit, decimal_point, name, pre_close)',
+            'returns': 'records(code, volunit, decimal_point, name, pre_close)',
             'category': '基础信息',
         },
         {
@@ -68,7 +68,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxHq_API.get_minute_time_data',
             'params': 'symbol',
             'limits': '仅当日',
-            'returns': 'DataFrame(price, vol)',
+            'returns': 'records(price, vol)',
             'category': '实时数据',
         },
         {
@@ -77,7 +77,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxHq_API.get_history_minute_time_data',
             'params': 'symbol, date',
             'limits': '每次一天',
-            'returns': 'DataFrame(price, vol)',
+            'returns': 'records(price, vol)',
             'category': '历史数据',
         },
         {
@@ -86,7 +86,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxHq_API.get_transaction_data',
             'params': 'symbol, start=0, offset=800',
             'limits': '单次最多 2000 条',
-            'returns': 'DataFrame(time, price, vol, buyorsell)',
+            'returns': 'records(time, price, vol, buyorsell)',
             'category': '实时数据',
         },
         {
@@ -95,7 +95,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxHq_API.get_history_transaction_data',
             'params': 'symbol, date, start=0, offset=800',
             'limits': '单次最多 2000 条',
-            'returns': 'DataFrame(time, price, vol, buyorsell)',
+            'returns': 'records(time, price, vol, buyorsell)',
             'category': '历史数据',
         },
         {
@@ -104,7 +104,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxHq_API.get_xdxr_info',
             'params': 'symbol',
             'limits': '—',
-            'returns': 'DataFrame(category, name, fenhong, peigujia, songzhuangu, peigu ...)',
+            'returns': 'records(category, name, fenhong, peigujia, songzhuangu, peigu ...)',
             'category': '基础信息',
         },
         {
@@ -113,7 +113,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxHq_API.get_finance_info',
             'params': 'symbol',
             'limits': '单只股票',
-            'returns': 'DataFrame(liutongguben, zongguben, bstock, profit, gongji, ...)',
+            'returns': 'records(liutongguben, zongguben, bstock, profit, gongji, ...)',
             'category': '基本面',
         },
         {
@@ -122,7 +122,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxHq_API.get_security_bars (组合)',
             'params': 'symbol, begin, end',
             'limits': '内部自动分页',
-            'returns': 'DataFrame(date, open, high, low, close, vol, amount, code)',
+            'returns': 'records(date, open, high, low, close, vol, amount, code)',
             'category': '历史数据',
         },
         {
@@ -131,7 +131,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxHq_API.get_and_parse_block_info',
             'params': 'tofile: block.dat/block_zs.dat/block_fg.dat/block_gn.dat',
             'limits': '—',
-            'returns': 'DataFrame(blockname, block_type, code_index, code)',
+            'returns': 'records(blockname, block_type, code_index, code)',
             'category': '基础信息',
         },
         {
@@ -162,7 +162,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxExHq_API.get_markets',
             'params': '—',
             'limits': '—',
-            'returns': 'DataFrame(market, name, short_name)',
+            'returns': 'records(market, name, short_name)',
             'category': '基础信息',
         },
         {
@@ -171,7 +171,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxExHq_API.get_instrument_info',
             'params': 'start=0, offset=800',
             'limits': '每页 100 条',
-            'returns': 'DataFrame(market, code, name, ...)',
+            'returns': 'records(market, code, name, ...)',
             'category': '基础信息',
         },
         {
@@ -180,7 +180,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxExHq_API.get_instrument_quote',
             'params': 'market, symbol',
             'limits': '—',
-            'returns': 'DataFrame(market, code, price, ...)',
+            'returns': 'records(market, code, price, ...)',
             'category': '实时数据',
         },
         {
@@ -189,7 +189,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxExHq_API.get_instrument_bars',
             'params': 'frequency, market, symbol, start, offset',
             'limits': '单次最多 800 根K线',
-            'returns': 'DataFrame(datetime, open, high, low, close, vol, amount)',
+            'returns': 'records(datetime, open, high, low, close, vol, amount)',
             'category': '历史数据',
         },
         {
@@ -198,7 +198,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxExHq_API.get_minute_time_data',
             'params': 'market, symbol',
             'limits': '—',
-            'returns': 'DataFrame(price, vol)',
+            'returns': 'records(price, vol)',
             'category': '实时数据',
         },
         {
@@ -207,7 +207,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxExHq_API.get_history_minute_time_data',
             'params': 'market, symbol, date',
             'limits': '—',
-            'returns': 'DataFrame(price, vol)',
+            'returns': 'records(price, vol)',
             'category': '历史数据',
         },
         {
@@ -216,7 +216,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxExHq_API.get_transaction_data',
             'params': 'market, symbol, start, offset',
             'limits': '—',
-            'returns': 'DataFrame(time, price, vol, buyorsell)',
+            'returns': 'records(time, price, vol, buyorsell)',
             'category': '实时数据',
         },
         {
@@ -225,7 +225,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxExHq_API.get_history_transaction_data',
             'params': 'market, symbol, date, start, offset',
             'limits': '—',
-            'returns': 'DataFrame(time, price, vol, buyorsell)',
+            'returns': 'records(time, price, vol, buyorsell)',
             'category': '历史数据',
         },
     ],
@@ -256,7 +256,7 @@ CAPABILITIES = {
             'tdxpy_method': '本地二进制解析',
             'params': 'downdir, filename',
             'limits': '—',
-            'returns': 'DataFrame(code, report_date, 基本每股收益, ... 全部 report_size 字段)',
+            'returns': 'records(code, report_date, 基本每股收益, ... 全部 report_size 字段)',
             'category': '财务数据',
         },
     ],
@@ -269,7 +269,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxDailyBarReader',
             'params': 'symbol',
             'limits': '需本地安装通达信',
-            'returns': 'DataFrame(open, high, low, close, vol, amount)',
+            'returns': 'records(open, high, low, close, vol, amount)',
             'category': '离线数据',
         },
         {
@@ -278,7 +278,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxMinBarReader / TdxLCMinBarReader',
             'params': 'symbol, suffix="lc5"',
             'limits': '需本地安装通达信',
-            'returns': 'DataFrame(open, high, low, close, vol, amount)',
+            'returns': 'records(open, high, low, close, vol, amount)',
             'category': '离线数据',
         },
         {
@@ -287,7 +287,7 @@ CAPABILITIES = {
             'tdxpy_method': 'TdxMinBarReader',
             'params': 'symbol',
             'limits': '需本地安装通达信',
-            'returns': 'DataFrame',
+            'returns': 'records',
             'category': '离线数据',
         },
     ],

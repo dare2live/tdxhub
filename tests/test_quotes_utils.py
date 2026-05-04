@@ -1,4 +1,5 @@
-import pandas as pd
+from datetime import datetime
+
 import pytest
 
 from tdxhub.quotes import BaseQuotes
@@ -35,11 +36,10 @@ def test_valid_server_rejects_malformed_iterable():
         valid_server(('bad-ip', 7709))
 
 
-def test_check_empty_handles_none_and_dataframe():
-    test_df_empty = pd.DataFrame([])
-
+def test_check_empty_handles_none_and_records():
     assert check_empty(None) is True
-    assert check_empty(test_df_empty) is True
+    assert check_empty([]) is True
+    assert check_empty([{"code": "000001"}]) is False
 
 
 def test_base_quotes_reconnect_uses_server_when_bestip_missing():
@@ -72,30 +72,27 @@ def test_ext_quotes_validate_rejects_missing_market():
 
 def test_std_quotes_records_wrappers_return_plain_records(monkeypatch):
     quote = StdQuotes.__new__(StdQuotes)
-    frame = pd.DataFrame(
-        [{"open": 1.0, "close": float("nan")}],
-        index=pd.to_datetime(["2026-05-04"]),
-    )
+    records = [{"datetime": datetime(2026, 5, 4), "open": 1.0, "close": float("nan")}]
     monkeypatch.setattr(
         StdQuotes,
         "bars",
-        lambda self, **kwargs: frame,
+        lambda self, **kwargs: records,
     )
 
-    records = quote.bars_records(symbol="000001")
+    result = quote.bars_records(symbol="000001")
 
-    assert records == [{"open": 1.0, "close": None, "datetime": "2026-05-04T00:00:00"}]
+    assert result == [{"datetime": "2026-05-04T00:00:00", "open": 1.0, "close": None}]
 
 
 def test_std_quotes_records_wrappers_keep_existing_datetime(monkeypatch):
     quote = StdQuotes.__new__(StdQuotes)
-    frame = pd.DataFrame([{"datetime": "2026-05-04", "open": 1.0}])
+    records = [{"datetime": "2026-05-04", "open": 1.0}]
     monkeypatch.setattr(
         StdQuotes,
         "index_bars",
-        lambda self, **kwargs: frame,
+        lambda self, **kwargs: records,
     )
 
-    records = quote.index_bars_records(symbol="000001")
+    result = quote.index_bars_records(symbol="000001")
 
-    assert records == [{"datetime": "2026-05-04", "open": 1.0}]
+    assert result == [{"datetime": "2026-05-04", "open": 1.0}]

@@ -15,9 +15,6 @@ def reader():
         ('000000', '', True),
         ('sh881478', '', False),
         ('881478', '', False),
-        ('688001', 'qfq', False),
-        ('000001', 'qfq', False),
-        ('127021', 'qfq', False),
     ])
 def test_daily(reader, symbol, adjust, empty):
     result = reader.daily(symbol=symbol, adjust=adjust)
@@ -25,25 +22,25 @@ def test_daily(reader, symbol, adjust, empty):
 
 
 @pytest.mark.parametrize(
-    'symbol,adjust,empty', [
-        ('688001', 'qfq', False),
-        ('000001', 'qfq', False),
-        ('127021', 'qfq', False),
+    'symbol,adjust', [
+        ('688001', 'qfq'),
+        ('000001', 'qfq'),
+        ('127021', 'qfq'),
     ])
-def test_daily_qfq(reader, symbol, adjust, empty):
-    result = reader.daily(symbol=symbol, adjust=adjust)
-    assert is_empty(result) is empty
+def test_daily_qfq_is_disabled_in_records_mode(reader, symbol, adjust):
+    with pytest.raises(NotImplementedError):
+        reader.daily(symbol=symbol, adjust=adjust)
 
 
 @pytest.mark.parametrize(
-    'symbol,adjust,empty', [
-        ('688001', '02', False),
-        ('000001', 'hfq', False),
-        ('127021', 'hfq', False),
+    'symbol,adjust', [
+        ('688001', '02'),
+        ('000001', 'hfq'),
+        ('127021', 'hfq'),
     ])
-def test_daily_hfq(reader, symbol, adjust, empty):
-    result = reader.daily(symbol=symbol, adjust=adjust)
-    assert is_empty(result) is empty
+def test_daily_hfq_is_disabled_in_records_mode(reader, symbol, adjust):
+    with pytest.raises(NotImplementedError):
+        reader.daily(symbol=symbol, adjust=adjust)
 
 
 @pytest.mark.parametrize('symbol', ['688001', '688001.5', '688001.loc1'])

@@ -34,17 +34,27 @@ class TestMd5sum(unittest.TestCase):
 
 class TestToData(unittest.TestCase):
     def test_to_data_list(self):
-        self.assertTrue(not to_data([{'aa': 'aa'}]).empty)
+        self.assertEqual(to_data([{'aa': 'aa'}]), [{'aa': 'aa'}])
 
     def test_to_data_dict(self):
-        self.assertTrue(not to_data({'abc': 123}).empty)
+        self.assertEqual(to_data({'abc': 123}), [{'abc': 123}])
+
+    def test_to_data_records_like_object(self):
+        class RecordsLike:
+            empty = False
+
+            def to_dict(self, orient):
+                assert orient == 'records'
+                return [{'abc': float('nan')}]
+
+        self.assertEqual(to_data(RecordsLike()), [{'abc': None}])
 
     def test_to_data_empty(self):
-        self.assertTrue(to_data(None).empty)
-        self.assertTrue(to_data({}).empty)
-        self.assertTrue(to_data([]).empty)
-        self.assertTrue(to_data('aaa').empty)
-        self.assertTrue(to_data(123).empty)
+        self.assertEqual(to_data(None), [])
+        self.assertEqual(to_data({}), [])
+        self.assertEqual(to_data([]), [])
+        self.assertEqual(to_data('aaa'), [])
+        self.assertEqual(to_data(123), [])
 
 
 class TestConfigPath(unittest.TestCase):

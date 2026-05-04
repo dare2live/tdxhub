@@ -4,8 +4,6 @@ from typing import Any
 from typing import Optional
 from typing import Union
 
-import pandas
-import pandas as pd
 from tdxhub.protocol.exceptions import ValidationException
 from tdxhub.protocol.exhq import TdxExHq_API
 from tdxhub.protocol.hq import TdxHq_API
@@ -37,11 +35,8 @@ MarketSymbol = tuple[int, str]
 def _normalise_record_value(value: Any) -> Any:
     if value is None:
         return None
-    try:
-        if pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        pass
+    if isinstance(value, float) and math.isnan(value):
+        return None
     if hasattr(value, 'isoformat'):
         try:
             return value.isoformat()
@@ -50,16 +45,69 @@ def _normalise_record_value(value: Any) -> Any:
     return value
 
 
-def _records_from_frame(frame: Optional[pd.DataFrame], *, index_field: str = '') -> list[dict[str, Any]]:
-    if frame is None or frame.empty:
+def _records_from_value(value: Any) -> list[dict[str, Any]]:
+    if value is None:
         return []
-    data = frame.copy()
-    if index_field and index_field not in data.columns and not isinstance(data.index, pd.RangeIndex):
-        data[index_field] = list(data.index)
-    records = []
-    for record in data.to_dict('records'):
-        records.append({key: _normalise_record_value(value) for key, value in record.items()})
-    return records
+    if hasattr(value, 'empty') and getattr(value, 'empty'):
+        return []
+    if hasattr(value, 'to_dict'):
+        try:
+            value = value.to_dict('records')
+        except TypeError:
+            pass
+    return [
+        {key: _normalise_record_value(item) for key, item in record.items()}
+        for record in to_data(value)
+    ]
+
+
+def _parse_date(date_text: str) -> datetime:
+    for fmt in ('%Y-%m-%d', '%Y%m%d'):
+        try:
+            return datetime.strptime(str(date_text), fmt)
+        except ValueError:
+            continue
+    return datetime.fromisoformat(str(date_text)[0:10])
+
+
+def _date_distance(date_text: str) -> int:
+    return (_parse_date(date_text).date() - datetime.now().date()).days
+
+
+def _record_date(record: dict[str, Any]) -> str:
+    if 'date' in record and record['date'] is not None:
+        text = str(record['date'])[0:10]
+    elif 'datetime' in record and record['datetime'] is not None:
+        text = str(record['datetime'])[0:10]
+    elif {'year', 'month', 'day'} <= record.keys():
+        try:
+            return f"{int(record['year']):04d}-{int(record['month']):02d}-{int(record['day']):02d}"
+        except (TypeError, ValueError):
+            return ''
+    else:
+        return ''
+    if len(text) == 8 and text.isdigit():
+        return f'{text[:4]}-{text[4:6]}-{text[6:8]}'
+    return text
+
+
+def _normalise_k_records(
+    records: list[dict[str, Any]],
+    code: str,
+    start_date: str,
+    end_date: str,
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    drop_keys = {'year', 'month', 'day', 'hour', 'minute', 'datetime'}
+    for record in records:
+        date_text = _record_date(record)
+        if not date_text or date_text < start_date or date_text >= end_date:
+            continue
+        row = {key: value for key, value in record.items() if key not in drop_keys}
+        row['date'] = date_text
+        row['code'] = str(code)
+        result.append(row)
+    return sorted(result, key=lambda item: item['date'])
 
 
 class Quotes(object):
@@ -148,8 +196,8 @@ class BaseQuotes(object):
         return False
 
     @staticmethod
-    def to_records(frame: Optional[pd.DataFrame], *, index_field: str = '') -> list[dict[str, Any]]:
-        return _records_from_frame(frame, index_field=index_field)
+    def to_records(value: Any, *, index_field: str = '') -> list[dict[str, Any]]:
+        return _records_from_value(value)
 
     def pool(self) -> None:
         ...
@@ -165,8 +213,12 @@ def check_empty(value: Any) -> bool:
     :param value: 要判断的值
     :return:
     """
-    # 修 (P1): 原 value.all().empty 当 DataFrame 全 NaN 时 .all() 返回 Series 仍非空, 永远 False; 直接看 .empty
-    _empty = value.empty if isinstance(value, pd.DataFrame) else not value
+    _empty = bool(getattr(value, 'empty', False)) if value is not None else True
+    if not _empty:
+        try:
+            _empty = not value
+        except (TypeError, ValueError):
+            _empty = False
 
     # 判断状态空，则重连接
     if instance and _empty:
@@ -221,12 +273,12 @@ class StdQuotes(BaseQuotes):
     def traffic(self) -> Any:
         return self.client.get_traffic_stats()
 
-    def quotes(self, symbol: Optional[SymbolInput] = None, **kwargs: Any) -> pd.DataFrame:
+    def quotes(self, symbol: Optional[SymbolInput] = None, **kwargs: Any) -> list[dict[str, Any]]:
         """
         获取实时日行情数据
 
         :param symbol: 股票代码
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         if not symbol:
@@ -250,7 +302,7 @@ class StdQuotes(BaseQuotes):
         start: int = 0,
         offset: int = 800,
         **kwargs: Any,
-    ) -> pd.DataFrame:
+    ) -> list[dict[str, Any]]:
         """
         获取实时日K线数据
 
@@ -258,7 +310,7 @@ class StdQuotes(BaseQuotes):
         :param frequency: 数据频次
         :param start: 开始位置
         :param offset: 每次获取条数
-        :return: pd.dataFrame or None
+        :return: records or None
         """
         frequency = get_frequency(frequency)
         market = get_stock_market(symbol)
@@ -273,7 +325,7 @@ class StdQuotes(BaseQuotes):
         获取市场股票数量
 
         :param market: 股票市场代码 sh 上海， sz 深圳
-        :return: pd.dataFrame or None
+        :return: records or None
         """
         if market not in [0, 1, 2]:
             raise MootdxValidationException('市场代码错误')
@@ -282,7 +334,7 @@ class StdQuotes(BaseQuotes):
 
         return result
 
-    def stocks(self, market: int = MARKET_SH) -> Optional[pd.DataFrame]:
+    def stocks(self, market: int = MARKET_SH) -> list[dict[str, Any]]:
         """
         获取股票列表
 
@@ -294,20 +346,20 @@ class StdQuotes(BaseQuotes):
             raise MootdxValidationException('市场代码错误, 目前只支持沪深市场')
 
         counts = self.stock_count(market=market)
-        stocks = None
+        stocks: list[dict[str, Any]] = []
 
         if counts > 0:
             for start in tqdm(range(0, counts, 1000), ascii=True):
                 result = self.client.get_security_list(market=market, start=start)
-                stocks = pandas.concat([stocks, to_data(result)], ignore_index=True) if start > 1 else to_data(result)
+                stocks.extend(to_data(result))
 
         return stocks
 
-    def stock_all(self) -> Optional[pd.DataFrame]:
-        stocks = None
+    def stock_all(self) -> list[dict[str, Any]]:
+        stocks: list[dict[str, Any]] = []
 
         for m in [0, 1]:
-            stocks = pandas.concat([stocks, self.stocks(m)], ignore_index=True)
+            stocks.extend(self.stocks(m))
 
         return stocks
 
@@ -318,7 +370,7 @@ class StdQuotes(BaseQuotes):
         start: int = 0,
         offset: int = 800,
         **kwargs: Any,
-    ) -> pd.DataFrame:
+    ) -> list[dict[str, Any]]:
         """
         获取指数k线
 
@@ -337,24 +389,24 @@ class StdQuotes(BaseQuotes):
 
         return to_data(result, symbol=symbol, client=self, **kwargs)
 
-    def minute(self, symbol: Optional[str] = None, **kwargs: Any) -> pd.DataFrame:
+    def minute(self, symbol: Optional[str] = None, **kwargs: Any) -> list[dict[str, Any]]:
         """
         获取实时分时数据
 
         :param symbol: 股票代码
-        :return: pd.DataFrame
+        :return: records
         """
 
         today = datetime.now().strftime('%Y%m%d')
         return self.minutes(symbol=symbol, date=today, **kwargs)
 
-    def minutes(self, symbol: Optional[str] = None, date: str = '20191023', **kwargs: Any) -> pd.DataFrame:
+    def minutes(self, symbol: Optional[str] = None, date: str = '20191023', **kwargs: Any) -> list[dict[str, Any]]:
         """
         分时历史数据
 
         :param symbol:  股票代码
         :param date:    查询日期
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         market = get_stock_market(symbol)
@@ -366,14 +418,14 @@ class StdQuotes(BaseQuotes):
 
         return to_data(result, symbol=symbol, client=self, **kwargs)
 
-    def transaction(self, symbol: str = '', start: int = 0, offset: int = 800, **kwargs: Any) -> pd.DataFrame:
+    def transaction(self, symbol: str = '', start: int = 0, offset: int = 800, **kwargs: Any) -> list[dict[str, Any]]:
         """
         查询分笔成交
 
         :param symbol:  股票代码
         :param start:   起始位置
         :param offset:  结束位置
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         market = get_stock_market(symbol)
@@ -389,7 +441,7 @@ class StdQuotes(BaseQuotes):
         offset: int = 800,
         date: str = '20170209',
         **kwargs: Any,
-    ) -> pd.DataFrame:
+    ) -> list[dict[str, Any]]:
         """
         查询历史分笔成交
 
@@ -397,7 +449,7 @@ class StdQuotes(BaseQuotes):
         :param start:   起始位置
         :param offset:  获取数量
         :param date:    查询日期
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         market = get_stock_market(symbol, string=False)
@@ -413,7 +465,7 @@ class StdQuotes(BaseQuotes):
         查询公司信息目录
 
         :param symbol: 股票代码
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         market = int(get_stock_market(symbol))
@@ -431,7 +483,7 @@ class StdQuotes(BaseQuotes):
 
         :param name: 公司 F10 标题
         :param symbol: 股票代码
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         result: dict[str, Any] = {}
@@ -463,12 +515,12 @@ class StdQuotes(BaseQuotes):
 
         return result
 
-    def xdxr(self, symbol: str = '', **kwargs: Any) -> pd.DataFrame:
+    def xdxr(self, symbol: str = '', **kwargs: Any) -> list[dict[str, Any]]:
         """
         读取除权除息信息
 
         :param symbol: 股票代码
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         market = get_stock_market(symbol)
@@ -476,7 +528,7 @@ class StdQuotes(BaseQuotes):
 
         return to_data(result, symbol=symbol, client=self, **kwargs)
 
-    def finance(self, symbol: str = '000001', **kwargs: Any) -> pd.DataFrame:
+    def finance(self, symbol: str = '000001', **kwargs: Any) -> list[dict[str, Any]]:
         """
         读取财务信息
 
@@ -495,50 +547,44 @@ class StdQuotes(BaseQuotes):
         begin: Optional[str] = None,
         end: Optional[str] = None,
         **kwargs: Any,
-    ) -> pd.DataFrame:
+    ) -> list[dict[str, Any]]:
         """
         读取k线信息
 
         :param symbol:  股票代码
         :param begin:   开始日期
         :param end:     截止日期
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         result = self.get_k_data(symbol, begin, end)
         return to_data(result, symbol=symbol, **kwargs)
 
-    def ohlc(self, **kwargs: Any) -> pd.DataFrame:
+    def ohlc(self, **kwargs: Any) -> list[dict[str, Any]]:
         return self.k(**kwargs)
 
-    def get_k_data(self, code: str, start_date: str, end_date: str) -> pd.DataFrame:
+    def get_k_data(self, code: str, start_date: str, end_date: str) -> list[dict[str, Any]]:
         # 开始时间离现在有几天
-        first = (pd.to_datetime(end_date) - pd.to_datetime(datetime.now().date())).days
+        first = _date_distance(end_date)
         first = (abs(first), 0)[first >= 0]
 
         # 结束时间离现在有几天
-        last = (pd.to_datetime(start_date) - pd.to_datetime(datetime.now().date())).days
+        last = _date_distance(start_date)
         last = (abs(last), 0)[last >= 0]
 
         # 去除节假日
         first -= int(first / 2.8)  # 非交易日大概是全年的1/3
         last -= int(last / 3.5)  # 非交易日大概是全年的1/3
 
-        temp = []
+        records: list[dict[str, Any]] = []
         market = get_stock_market(code)
+        pages = max(1, math.ceil((last - first) / 800))
 
-        for i in range(math.ceil((last - first) / 800)):
+        for i in range(pages):
             data = self.client.get_security_bars(9, market, code, (first + i * 800), 800)
-            temp.append(self.client.to_df(data))
+            records.extend(self.client.to_records(data))
 
-        data = pd.concat(temp)
-        data = data.assign(date=data['datetime'].apply(lambda x: str(x)[0:10])).assign(code=str(code))
-        data = data.set_index('date', drop=False, inplace=False)
-        data = data.drop(['year', 'month', 'day', 'hour', 'minute', 'datetime'], axis=1)
-        data = data.loc[(data.date >= start_date) & (data.date < end_date)]
-        data = data.sort_index()
-
-        return data
+        return _normalise_k_records(records, code, start_date, end_date)
 
     def index(
         self,
@@ -547,7 +593,7 @@ class StdQuotes(BaseQuotes):
         start: int = 0,
         offset: int = 800,
         **kwargs: Any,
-    ) -> pd.DataFrame:
+    ) -> list[dict[str, Any]]:
         """
         获取指数k线
 
@@ -570,7 +616,7 @@ class StdQuotes(BaseQuotes):
         :param market:      证券市场
         :param start:       开始位置
         :param offset:      每次获取条数
-        :return: pd.dataFrame or None
+        :return: records or None
         """
         frequency = get_frequency(frequency)
 
@@ -580,12 +626,12 @@ class StdQuotes(BaseQuotes):
 
         return to_data(result, symbol=symbol, client=self, **kwargs)
 
-    def block(self, tofile: str = 'block.dat', **kwargs: Any) -> pd.DataFrame:
+    def block(self, tofile: str = 'block.dat', **kwargs: Any) -> list[dict[str, Any]]:
         """
         获取证券板块信息
 
         :param tofile: 保存文件
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         result = self.client.get_and_parse_block_info(tofile)
@@ -730,11 +776,11 @@ class ExtQuotes(BaseQuotes):
         retry_error_callback=return_last_value,
         retry=(retry_if_exception_type() | retry_if_result(check_empty)),
     )
-    def markets(self, **kwargs: Any) -> pd.DataFrame:
+    def markets(self, **kwargs: Any) -> list[dict[str, Any]]:
         """
         获取实时市场列表
 
-        :return: pd.dataFrame or None
+        :return: records or None
         """
 
         result = self.client.get_markets()
@@ -746,7 +792,7 @@ class ExtQuotes(BaseQuotes):
         retry_error_callback=return_last_value,
         retry=(retry_if_exception_type() | retry_if_result(check_empty)),
     )
-    def instrument(self, start: int = 0, offset: int = 800, **kwargs: Any) -> pd.DataFrame:
+    def instrument(self, start: int = 0, offset: int = 800, **kwargs: Any) -> list[dict[str, Any]]:
         """
         查询代码列表
 
@@ -781,7 +827,7 @@ class ExtQuotes(BaseQuotes):
         retry_error_callback=return_last_value,
         retry=(retry_if_exception_type() | retry_if_result(check_empty)),
     )
-    def instruments(self, **kwargs: Any) -> pd.DataFrame:
+    def instruments(self, **kwargs: Any) -> list[dict[str, Any]]:
         """
         查询所有代码列表
 
@@ -809,7 +855,7 @@ class ExtQuotes(BaseQuotes):
         market: Optional[Union[int, str]] = '',
         symbol: str = '',
         **kwargs: Any,
-    ) -> pd.DataFrame:
+    ) -> list[dict[str, Any]]:
         """
         查询五档行情
 
@@ -834,7 +880,7 @@ class ExtQuotes(BaseQuotes):
         market: Optional[Union[int, str]] = '',
         symbol: str = '',
         **kwargs: Any,
-    ) -> pd.DataFrame:
+    ) -> list[dict[str, Any]]:
         """
         查询分时行情
 
@@ -860,7 +906,7 @@ class ExtQuotes(BaseQuotes):
         symbol: str = '',
         date: str = '',
         **kwargs: Any,
-    ) -> pd.DataFrame:
+    ) -> list[dict[str, Any]]:
         """
         查询历史分时行情
 
@@ -889,7 +935,7 @@ class ExtQuotes(BaseQuotes):
         start: int = 0,
         offset: int = 800,
         **kwargs: Any,
-    ) -> pd.DataFrame:
+    ) -> list[dict[str, Any]]:
         """
         查询k线数据
 
@@ -922,7 +968,7 @@ class ExtQuotes(BaseQuotes):
         start: int = 0,
         offset: int = 800,
         **kwargs: Any,
-    ) -> pd.DataFrame:
+    ) -> list[dict[str, Any]]:
         """
         查询分笔成交
 
@@ -952,7 +998,7 @@ class ExtQuotes(BaseQuotes):
         start: int = 0,
         offset: int = 800,
         **kwargs: Any,
-    ) -> pd.DataFrame:
+    ) -> list[dict[str, Any]]:
         """
         查询历史分笔成交
 

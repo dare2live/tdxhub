@@ -1,8 +1,7 @@
 # cython: language_level=3
 import secrets
 import warnings
-
-import pandas as pd
+from typing import Any
 
 from tdxhub.protocol.base_socket_client import BaseSocketClient
 from tdxhub.protocol.base_socket_client import last_ack_time
@@ -28,6 +27,42 @@ from tdxhub.protocol.parser.std.get_security_list import GetSecurityList
 from tdxhub.protocol.parser.std.get_security_quotes import GetSecurityQuotesCmd
 from tdxhub.protocol.parser.std.get_transaction_data import GetTransactionData
 from tdxhub.protocol.parser.std.get_xdxr_info import GetXdXrInfo
+
+
+def _record_date(record: dict[str, Any]) -> str:
+    if 'date' in record and record['date'] is not None:
+        text = str(record['date'])[0:10]
+    elif 'datetime' in record and record['datetime'] is not None:
+        text = str(record['datetime'])[0:10]
+    elif {'year', 'month', 'day'} <= record.keys():
+        try:
+            return f"{int(record['year']):04d}-{int(record['month']):02d}-{int(record['day']):02d}"
+        except (TypeError, ValueError):
+            return ''
+    else:
+        return ''
+    if len(text) == 8 and text.isdigit():
+        return f'{text[:4]}-{text[4:6]}-{text[6:8]}'
+    return text
+
+
+def _normalise_k_records(
+    records: list[dict[str, Any]],
+    code: str,
+    start_date: str,
+    end_date: str,
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    drop_keys = {'year', 'month', 'day', 'hour', 'minute', 'datetime'}
+    for record in records:
+        date_text = _record_date(record)
+        if not date_text or date_text < start_date or date_text >= end_date:
+            continue
+        row = {key: value for key, value in record.items() if key not in drop_keys}
+        row['date'] = date_text
+        row['code'] = str(code)
+        result.append(row)
+    return sorted(result, key=lambda item: item['date'])
 
 
 class TdxHq_API(BaseSocketClient):  # noqa
@@ -363,20 +398,9 @@ class TdxHq_API(BaseSocketClient):  # noqa
         # https://github.com/rainx/pytdx/issues/33
         # 0 - 深圳， 1 - 上海
 
-        result = pd.concat(
-            [
-                self.to_df(self.get_security_bars(9, __select_market_code(code), code, (9 - i) * 800, 800))
-                for i in range(10)
-            ],
-            axis=0,
-        )
-        result = (
-            result.assign(date=result["datetime"].apply(lambda x: str(x)[0:10]))
-            .assign(code=str(code))
-            .set_index("date", drop=False, inplace=False)
-            .drop(["year", "month", "day", "hour", "minute", "datetime"], axis=1)[start_date:end_date]
-        )
+        records: list[dict[str, Any]] = []
+        for i in range(10):
+            data = self.get_security_bars(9, __select_market_code(code), code, (9 - i) * 800, 800)
+            records.extend(self.to_records(data))
 
-        result = result.assign(date=result["date"].apply(lambda x: str(x)[0:10]))
-
-        return result
+        return _normalise_k_records(records, code, start_date, end_date)

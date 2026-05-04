@@ -1,11 +1,13 @@
+import csv
 import hashlib
+import json
+import math
 from pathlib import Path
 from struct import calcsize
 from struct import unpack
+from typing import Any
 
 import httpx
-import pandas as pd
-from pandas import DataFrame
 from tqdm import tqdm
 
 from tdxhub.consts import MARKET_BJ
@@ -117,12 +119,31 @@ def md5sum(downfile):
         return None
 
 
-def to_data(v, **kwargs):
+def _normalise_record_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if hasattr(value, 'isoformat'):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    return value
+
+
+def _coerce_record(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return {str(key): _normalise_record_value(item) for key, item in value.items()}
+    return {'value': _normalise_record_value(value)}
+
+
+def to_data(v, **kwargs) -> list[dict[str, Any]]:
     """
-    数值转换为 pd.DataFrame
+    Convert protocol payloads to records.
 
     :param v: mixed
-    :return: pd.DataFrame
+    :return: records
     """
 
     symbol = kwargs.get('symbol')
@@ -135,56 +156,43 @@ def to_data(v, **kwargs):
     else:
         adjust = None
 
-    # 空值
-    if not isinstance(v, DataFrame) and not v:
-        return pd.DataFrame(data=None)
+    if hasattr(v, 'empty') and getattr(v, 'empty'):
+        return []
+    if hasattr(v, 'to_dict'):
+        try:
+            v = v.to_dict('records')
+        except TypeError:
+            pass
 
-    # DataFrame
-    if isinstance(v, DataFrame):
-        result = v
+    if adjust and symbol:
+        raise NotImplementedError('adjusted quote output is not available in records mode')
 
-    # 列表
-    elif isinstance(v, list):
-        result = pd.DataFrame(data=v) if len(v) else None
+    if v is None or v == {} or v == []:
+        return []
 
-    # 字典
+    if isinstance(v, list):
+        result = [_coerce_record(item) for item in v]
     elif isinstance(v, dict):
-        result = pd.DataFrame(data=[v])
-
-    # 空值
+        result = [_coerce_record(v)]
     else:
-        result = pd.DataFrame(data=[])
+        return []
 
-    if 'datetime' in result.columns:
-        result.index = pd.to_datetime(result.datetime)
-
-    if 'date' in result.columns:
-        result.index = pd.to_datetime(result.date)
-
-    if 'vol' in result.columns:
-        result['volume'] = result.vol
-
-    if adjust and adjust in ['qfq', 'hfq'] and symbol:
-        from tdxhub.utils.adjust import to_adjust
-
-        result = to_adjust(result, symbol=symbol, adjust=adjust)
-
-    # @file_cache(refresh_time=3600 * 24, filepath=get_config_path('cache/'))
-    # def cache_data(data):
-    #     return data
+    for record in result:
+        if 'vol' in record and 'volume' not in record:
+            record['volume'] = record['vol']
 
     return result
 
 
-def to_file(df, filename=None):
+def to_file(records, filename=None):
     """
     根据扩展名输出文件
 
-    :param df: pd.DataFrame
+    :param records: records
     :param filename: 要输出的文件，支持 csv, xlsx, xls, json, h5
     :return: bool
     """
-    if filename is None or df is None:
+    if filename is None or records is None:
         return None
 
     path_name = Path(filename).parent
@@ -193,23 +201,24 @@ def to_file(df, filename=None):
     # 目录不存在创建目录
     Path(path_name).is_dir() or Path(path_name).mkdir(parents=True)
 
-    # methods = {'to_json': ['.json']}
-    # method = [k for k, v in methods if extension in v][0]
-    # getattr(pd, method)(filename)
+    rows = to_data(records)
 
     if extension == '.csv':
-        return df.to_csv(filename, encoding='utf-8', index=False)
-
-    if extension == '.xlsx' or extension == '.xls':
-        # openpyxl, xlwt
-        return df.to_excel(filename, index=False)
-
-    if extension == '.h5':
-        # tables
-        return df.to_hdf(filename, 'df', index=False)
+        columns: list[str] = []
+        for row in rows:
+            for key in row:
+                if key not in columns:
+                    columns.append(key)
+        with open(filename, 'w', encoding='utf-8', newline='') as fp:
+            writer = csv.DictWriter(fp, fieldnames=columns)
+            writer.writeheader()
+            writer.writerows(rows)
+        return None
 
     if extension == '.json':
-        return df.to_json(filename, orient='records')
+        with open(filename, 'w', encoding='utf-8') as fp:
+            json.dump(rows, fp, ensure_ascii=False)
+        return None
 
     return None
 
@@ -275,12 +284,12 @@ def get_frequency(frequency) -> int:
     return frequency
 
 
-def stock_bj_a() -> pd.DataFrame:
+def stock_bj_a() -> list[dict[str, Any]]:
     """
     东方财富网-京 A 股-实时行情
     http://quote.eastmoney.com/center/gridlist.html#hs_a_board
     :return: 实时行情
-    :rtype: pandas.DataFrame
+    :rtype: records
     """
     url = 'http://82.push2.eastmoney.com/api/qt/clist/get'
     params = {
@@ -300,8 +309,9 @@ def stock_bj_a() -> pd.DataFrame:
     r = httpx.get(url, params=params)
     data_json = r.json()
 
-    if not data_json['data']['diff']:
-        return pd.DataFrame()
+    rows = data_json['data']['diff']
+    if not rows:
+        return []
 
     columns = [
         '_',
@@ -337,17 +347,20 @@ def stock_bj_a() -> pd.DataFrame:
         '-',
     ]
 
-    temp_df = pd.DataFrame(data_json['data']['diff'])
-    temp_df.columns = columns
+    source_fields = params['fields'].split(',')
+    result: list[dict[str, Any]] = []
+    for index, row in enumerate(rows, start=1):
+        record: dict[str, Any] = {'序号': index}
+        for field, column in zip(source_fields, columns):
+            if column == '-':
+                continue
+            value = row.get(field) if isinstance(row, dict) else None
+            if column not in {'代码', '名称'}:
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    value = None
+            record[column] = value
+        result.append(record)
 
-    temp_df.reset_index(inplace=True)
-    temp_df['index'] = temp_df.index + 1
-
-    temp_df.rename(columns={'index': '序号'}, inplace=True)
-    temp_df = temp_df[[x for x in columns if x != '-']]
-
-    for x in columns:
-        if x != '-':
-            temp_df[x] = pd.to_numeric(temp_df[x], errors='coerce')
-
-    return temp_df
+    return result

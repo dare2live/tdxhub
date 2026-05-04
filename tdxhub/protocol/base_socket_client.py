@@ -4,8 +4,7 @@ import functools
 import socket
 import threading
 import time
-
-import pandas as pd
+from typing import Any
 
 from tdxhub.protocol.exceptions import TdxConnectionError
 from tdxhub.protocol.exceptions import TdxFunctionCallError
@@ -287,25 +286,27 @@ class BaseSocketClient:
         self.close()
 
     @staticmethod
-    def to_df(v):
+    def to_records(v: Any) -> list[dict[str, Any]]:
         """
-        数据转换 df 格式
+        数据转换 records 格式
         :param v:
         :return:
         """
 
-        v = v or ""
-
         if not v:
-            return pd.DataFrame(data=None)
+            return []
 
         if isinstance(v, list):
-            return pd.DataFrame(data=v)
+            return [item if isinstance(item, dict) else {"value": item} for item in v]
 
         if isinstance(v, dict):
-            return pd.DataFrame(data=[v])
+            return [v]
 
-        return pd.DataFrame(data=[{"value": v}])
+        return [{"value": v}]
+
+    @staticmethod
+    def to_df(v: Any) -> list[dict[str, Any]]:
+        return BaseSocketClient.to_records(v)
 
     def setup(self):
         """
