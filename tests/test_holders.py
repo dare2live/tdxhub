@@ -21,7 +21,9 @@ from tdxhub.holders import (
     parse_fund_holdings_format_b,
     parse_holder_count_history_format_b,
     parse_holders,
+    parse_holders_records,
     parse_research,
+    parse_research_records,
     parse_shareholder_plans,
     parse_shareholder_plans_format_b,
     parse_shareholder_trades,
@@ -112,6 +114,35 @@ def test_returns_empty_with_stable_columns_for_empty_input():
     ]
     assert holders.empty
     assert periods.empty
+
+
+def test_records_helpers_return_plain_records():
+    text, code = _load("600519")
+
+    holder_records = parse_holders_records(text, symbol=code)
+    research_records = parse_research_records(text, symbol=code)
+
+    assert isinstance(holder_records["holders"], list)
+    assert isinstance(holder_records["periods"], list)
+    assert isinstance(research_records["holders"], list)
+    assert isinstance(research_records["periods"], list)
+    assert isinstance(research_records["plans"], list)
+    assert not isinstance(research_records["holders"], pd.DataFrame)
+    assert not isinstance(research_records["periods"], pd.DataFrame)
+    assert research_records["page"]["stock_code"] == code
+    assert research_records["holders"][0]["stock_code"] == code
+    assert research_records["holders"][0]["source"] == "tdx_f10"
+
+
+def test_records_helpers_return_empty_lists_for_missing_sections():
+    result = parse_research_records("", symbol="600519")
+
+    assert result["holders"] == []
+    assert result["periods"] == []
+    assert result["trades_b"] == []
+    assert result["holder_count_history"] == []
+    assert result["common_major_holder_stocks"] == []
+    assert result["fund_holdings"] == []
 
 
 def test_moutai_period_count_and_split():

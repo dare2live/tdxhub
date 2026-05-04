@@ -30,6 +30,10 @@ The schema is intentionally minimal but lossless:
 
 The module avoids any network or file I/O so it can be tested entirely
 against captured fixtures.
+
+New callers should prefer the ``*_records`` helpers. They expose the same
+parsed payload as plain ``list[dict]`` records and keep pandas contained
+inside this compatibility module while existing DataFrame callers migrate.
 """
 
 from __future__ import annotations
@@ -2031,6 +2035,56 @@ def parse_research(
     }
 
 
+def _normalise_record_value(value: Any) -> Any:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
+
+
+def _normalise_record(record: dict[str, Any]) -> dict[str, Any]:
+    return {key: _normalise_record_value(value) for key, value in record.items()}
+
+
+def _records_from_frame(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    if frame is None or frame.empty:
+        return []
+    return [_normalise_record(record) for record in frame.to_dict("records")]
+
+
+def parse_holders_records(
+    text: str, *, symbol: str = "", stock_name: str = ""
+) -> dict[str, list[dict[str, Any]]]:
+    """Parse section-4 holder tables into records instead of DataFrames."""
+
+    holders, periods = parse_holders_auto(text, symbol=symbol, stock_name=stock_name)
+    return {
+        "holders": _records_from_frame(holders),
+        "periods": _records_from_frame(periods),
+    }
+
+
+def parse_research_records(
+    text: str, *, symbol: str = "", stock_name: str = ""
+) -> dict[str, Any]:
+    """Parse all supported 「股东研究」 sections into plain Python records."""
+
+    parsed = parse_research(text, symbol=symbol, stock_name=stock_name)
+    records: dict[str, Any] = {}
+    for key, value in parsed.items():
+        if isinstance(value, pd.DataFrame):
+            records[key] = _records_from_frame(value)
+        elif isinstance(value, dict):
+            records[key] = _normalise_record(value)
+        else:
+            records[key] = value
+    return records
+
+
 # ---------------------------------------------------------------------------
 # Format B parser (通达信沪深京F10)
 # ---------------------------------------------------------------------------
@@ -2682,9 +2736,18 @@ class HolderFetcher:
             return None
         return parse_research(text, symbol=symbol, stock_name=stock_name)
 
+    def fetch_research_records(
+        self, symbol: str, *, stock_name: str = ""
+    ) -> Optional[dict[str, Any]]:
+        text = self.fetch_text(symbol)
+        if not text:
+            return None
+        return parse_research_records(text, symbol=symbol, stock_name=stock_name)
+
 
 __all__ = [
     "parse_holders",
+    "parse_holders_records",
     "parse_holders_format_b",
     "parse_holders_auto",
     "parse_controlling_shareholder",
@@ -2697,6 +2760,7 @@ __all__ = [
     "parse_common_major_holder_stocks_format_b",
     "parse_fund_holdings_format_b",
     "parse_research",
+    "parse_research_records",
     "detect_f10_format",
     "fetch_holders",
     "fetch_holders_text",
