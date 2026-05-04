@@ -20,12 +20,15 @@ import sys
 import time
 import traceback
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import duckdb
-import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, "/Users/dp/Documents/M/stock/tdxhub")
 from tdxhub.holders import HolderFetcher, parse_research  # noqa: E402
+from _holder_records_duckdb import create_table_from_records  # noqa: E402
 
 
 DEFAULT_BASKET = [
@@ -126,11 +129,11 @@ def main() -> int:
 
     fetcher = HolderFetcher(timeout=15, max_attempts_per_call=6, prescreen_limit=8)
     results: list[StockResult] = []
-    all_holders: list[pd.DataFrame] = []
-    all_periods: list[pd.DataFrame] = []
+    all_holders: list[list[dict[str, Any]]] = []
+    all_periods: list[list[dict[str, Any]]] = []
     all_controlling: list[dict] = []
-    all_plans: list[pd.DataFrame] = []
-    all_trades: list[pd.DataFrame] = []
+    all_plans: list[list[dict[str, Any]]] = []
+    all_trades: list[list[dict[str, Any]]] = []
     raw_texts: list[dict] = []
 
     for i, code in enumerate(basket, 1):
@@ -157,11 +160,15 @@ def main() -> int:
             ctrl = res["controlling"]
             plans = res["plans"]
             trades = res["trades"]
-            ah_split = (
-                holders[(~holders["is_exit_row"]) & holders["is_secondary_class"]]
-                .groupby("holder_name")
-                .ngroups
-            )
+            ah_split = len({
+                row["holder_name"]
+                for row in holders
+                if not row["is_exit_row"] and row["is_secondary_class"]
+            })
+            n_periods_free = sum(1 for row in periods if row["holder_set"] == "free")
+            n_periods_all = sum(1 for row in periods if row["holder_set"] == "all")
+            n_exit_rows = sum(1 for row in holders if row["is_exit_row"])
+            n_secondary = sum(1 for row in holders if row["is_secondary_class"])
             results.append(
                 StockResult(
                     code=code,
@@ -169,11 +176,11 @@ def main() -> int:
                     raw_len=len(text),
                     elapsed_s=elapsed,
                     err=None,
-                    n_periods_free=int((periods["holder_set"] == "free").sum()),
-                    n_periods_all=int((periods["holder_set"] == "all").sum()),
+                    n_periods_free=n_periods_free,
+                    n_periods_all=n_periods_all,
                     n_holders=len(holders),
-                    n_exit_rows=int(holders["is_exit_row"].sum()),
-                    n_secondary_class=int(holders["is_secondary_class"].sum()),
+                    n_exit_rows=n_exit_rows,
+                    n_secondary_class=n_secondary,
                     n_plans=len(plans),
                     n_trades=len(trades),
                     has_controlling=ctrl is not None,
@@ -192,10 +199,10 @@ def main() -> int:
             )
             print(
                 f"  [{i:2d}/{len(basket)}] {code}: ok  "
-                f"len={len(text):5d}  periods={int((periods['holder_set']=='free').sum())}f/"
-                f"{int((periods['holder_set']=='all').sum())}a  "
-                f"rows={len(holders):3d}  exits={int(holders['is_exit_row'].sum()):2d}  "
-                f"secondary={int(holders['is_secondary_class'].sum()):2d}  "
+                f"len={len(text):5d}  periods={n_periods_free}f/"
+                f"{n_periods_all}a  "
+                f"rows={len(holders):3d}  exits={n_exit_rows:2d}  "
+                f"secondary={n_secondary:2d}  "
                 f"plans={len(plans)}  trades={len(trades)}  "
                 f"{elapsed:.1f}s"
             )
@@ -218,26 +225,18 @@ def main() -> int:
 
     # Persist
     if all_holders:
-        con.register("h_in", pd.concat(all_holders, ignore_index=True))
-        con.execute("create table holders as select * from h_in")
+        create_table_from_records(con, "holders", "h_in", [row for rows in all_holders for row in rows])
     if all_periods:
-        con.register("p_in", pd.concat(all_periods, ignore_index=True))
-        con.execute("create table periods as select * from p_in")
+        create_table_from_records(con, "periods", "p_in", [row for rows in all_periods for row in rows])
     if all_plans:
-        con.register("pl_in", pd.concat(all_plans, ignore_index=True))
-        con.execute("create table plans as select * from pl_in")
+        create_table_from_records(con, "plans", "pl_in", [row for rows in all_plans for row in rows])
     if all_trades:
-        con.register("tr_in", pd.concat(all_trades, ignore_index=True))
-        con.execute("create table trades as select * from tr_in")
+        create_table_from_records(con, "trades", "tr_in", [row for rows in all_trades for row in rows])
     if all_controlling:
-        con.register("ctrl_in", pd.DataFrame(all_controlling))
-        con.execute("create table controlling as select * from ctrl_in")
+        create_table_from_records(con, "controlling", "ctrl_in", all_controlling)
     if raw_texts:
-        con.register("raw_in", pd.DataFrame(raw_texts))
-        con.execute("create table raw_text as select * from raw_in")
-    stats_df = pd.DataFrame([r.__dict__ for r in results])
-    con.register("stats_in", stats_df)
-    con.execute("create table stats as select * from stats_in")
+        create_table_from_records(con, "raw_text", "raw_in", raw_texts)
+    create_table_from_records(con, "stats", "stats_in", [r.__dict__ for r in results])
     con.close()
 
     # Report

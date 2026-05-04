@@ -1,7 +1,7 @@
 """F10 「股东研究」 structured parser.
 
 Turns the raw GBK-decoded text returned by ``get_company_info_content`` into
-two pandas DataFrames:
+two record sets:
 
 - ``holders``: one row per holder per share class per period, including
   exit rows from ``较上个报告期退出前十大流通股东`` / ``...退出前十大股东`` tables.
@@ -30,22 +30,17 @@ The schema is intentionally minimal but lossless:
 
 The module avoids any network or file I/O so it can be tested entirely
 against captured fixtures.
-
-New callers should prefer the ``*_records`` helpers. They expose the same
-parsed payload as plain ``list[dict]`` records and keep pandas contained
-inside this compatibility module while existing DataFrame callers migrate.
 """
 
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
-
-import pandas as pd
 
 from tdxhub.consts import MARKET_BJ, MARKET_SH, MARKET_SZ
 from tdxhub.utils import get_stock_market
@@ -487,6 +482,10 @@ def _hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()
 
 
+def _records_with_columns(records: list[dict[str, Any]], columns: list[str]) -> list[dict[str, Any]]:
+    return [{column: record.get(column) for column in columns} for record in records]
+
+
 def _classify_table(rows: list[list[str]]) -> tuple[str, list[list[str]]]:
     """Classify a ┌...└ block by its content.
 
@@ -514,11 +513,13 @@ def _classify_table(rows: list[list[str]]) -> tuple[str, list[list[str]]]:
     return "unknown", []
 
 
-def parse_holders(text: str, *, symbol: str = "", stock_name: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Parse F10 「股东研究」 text into ``(holders_df, periods_df)``.
+def parse_holders(
+    text: str, *, symbol: str = "", stock_name: str = ""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Parse F10 「股东研究」 text into ``(holders, periods)`` records.
 
-    Both DataFrames are empty (with stable columns) if the section 4 block is
-    missing or unparsable. The function never raises on malformed input.
+    Both record lists are empty if the section 4 block is missing or
+    unparsable. The function never raises on malformed input.
     """
 
     raw_hash = _hash(text)
@@ -609,9 +610,10 @@ def parse_holders(text: str, *, symbol: str = "", stock_name: str = "") -> tuple
 
         i += 1
 
-    holders_df = pd.DataFrame(holder_records, columns=_HOLDER_COLUMNS)
-    periods_df = pd.DataFrame(period_records, columns=_PERIOD_COLUMNS)
-    return holders_df, periods_df
+    return (
+        _records_with_columns(holder_records, _HOLDER_COLUMNS),
+        _records_with_columns(period_records, _PERIOD_COLUMNS),
+    )
 
 
 def _period_keys(p: dict[str, Any]) -> dict[str, Any]:
@@ -972,8 +974,8 @@ def _parse_one_plan(rows: list[list[str]]) -> dict[str, str]:
 
 def parse_shareholder_plans(
     text: str, *, symbol: str = "", stock_name: str = ""
-) -> pd.DataFrame:
-    """Parse F10 段 2 (股东增减持计划) into one DataFrame row per plan."""
+) -> list[dict[str, Any]]:
+    """Parse F10 段 2 (股东增减持计划) into one record per plan."""
 
     if detect_f10_format(text) == "b":
         return parse_shareholder_plans_format_b(
@@ -991,7 +993,7 @@ def parse_shareholder_plans(
     lines = _section_lines(text or "", 2)
     plans: list[dict[str, Any]] = []
     if not lines or any("暂无数据" in ln for ln in lines):
-        return pd.DataFrame(columns=_PLAN_COLUMNS)
+        return []
 
     i = 0
     n = len(lines)
@@ -1030,7 +1032,7 @@ def parse_shareholder_plans(
             continue
         i += 1
 
-    return pd.DataFrame(plans, columns=_PLAN_COLUMNS)
+    return _records_with_columns(plans, _PLAN_COLUMNS)
 
 
 _PLAN_COLUMNS = [
@@ -1142,7 +1144,7 @@ def _parse_format_b_plan_rows(rows: list[list[str]]) -> tuple[list[list[str]], l
 
 def parse_shareholder_plans_format_b(
     text: str, *, symbol: str = "", stock_name: str = ""
-) -> pd.DataFrame:
+) -> list[dict[str, Any]]:
     """Parse Format B 段 2 股东增减持计划.
 
     The Format B plan table is not label/value based: each plan starts with a
@@ -1161,7 +1163,7 @@ def parse_shareholder_plans_format_b(
 
     lines = _section_lines(text or "", 2)
     if not lines or any("暂无数据" in ln for ln in lines):
-        return pd.DataFrame(columns=_PLAN_COLUMNS)
+        return []
 
     plans: list[dict[str, Any]] = []
     meta: dict[str, str] = {"announce": "", "direction": "", "progress": ""}
@@ -1228,7 +1230,7 @@ def parse_shareholder_plans_format_b(
             continue
         i += 1
 
-    return pd.DataFrame(plans, columns=_PLAN_COLUMNS)
+    return _records_with_columns(plans, _PLAN_COLUMNS)
 
 
 _DATE_RE = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
@@ -1282,8 +1284,8 @@ def _is_trade_header_row(cells: list[str]) -> bool:
 
 def parse_shareholder_trades(
     text: str, *, symbol: str = "", stock_name: str = ""
-) -> pd.DataFrame:
-    """Parse F10 段 3 (股东持股变动) into one DataFrame row per trade."""
+) -> list[dict[str, Any]]:
+    """Parse F10 段 3 (股东持股变动) into one record per trade."""
 
     raw_hash = _hash(text)
     fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -1295,7 +1297,7 @@ def parse_shareholder_trades(
 
     lines = _section_lines(text or "", 3)
     if not lines or any("暂无数据" in ln for ln in lines):
-        return pd.DataFrame(columns=_TRADE_COLUMNS)
+        return []
 
     trades: list[dict[str, Any]] = []
     i = 0
@@ -1356,7 +1358,7 @@ def parse_shareholder_trades(
             continue
         i += 1
 
-    return pd.DataFrame(trades, columns=_TRADE_COLUMNS)
+    return _records_with_columns(trades, _TRADE_COLUMNS)
 
 
 _TRADE_COLUMNS = [
@@ -1406,7 +1408,7 @@ def _shares_from_wan_text(value: str) -> tuple[Optional[int], str]:
 
 def parse_shareholder_trades_format_b(
     text: str, *, symbol: str = "", stock_name: str = ""
-) -> pd.DataFrame:
+) -> list[dict[str, Any]]:
     """Parse Format B 段 3 重要股东持股变动.
 
     This richer table has period, actor, changed shares, average price,
@@ -1424,7 +1426,7 @@ def parse_shareholder_trades_format_b(
 
     lines = _section_lines(text or "", 3)
     if not lines or any("暂无数据" in ln for ln in lines):
-        return pd.DataFrame(columns=_TRADE_B_COLUMNS)
+        return []
 
     records: list[dict[str, Any]] = []
     i = 0
@@ -1447,7 +1449,13 @@ def parse_shareholder_trades_format_b(
                 shares_after_cell = cells[4].strip()
                 method_cell = cells[5].strip()
 
-                if not period_text and not shares_change_cell and not avg_price_cell and not shares_after_cell and not method_cell:
+                if (
+                    not period_text
+                    and not shares_change_cell
+                    and not avg_price_cell
+                    and not shares_after_cell
+                    and not method_cell
+                ):
                     if last_record is not None and holder_name:
                         last_record["holder_name"] = (
                             last_record["holder_name"] + holder_name
@@ -1484,7 +1492,7 @@ def parse_shareholder_trades_format_b(
             continue
         i += 1
 
-    return pd.DataFrame(records, columns=_TRADE_B_COLUMNS)
+    return _records_with_columns(records, _TRADE_B_COLUMNS)
 
 
 _TRADE_B_COLUMNS = [
@@ -1517,7 +1525,7 @@ _TRADE_B_COLUMNS = [
 
 def parse_holder_count_history_format_b(
     text: str, *, symbol: str = "", stock_name: str = ""
-) -> pd.DataFrame:
+) -> list[dict[str, Any]]:
     """Parse Format B 段 5 股东人数变化."""
 
     raw_hash = _hash(text)
@@ -1530,7 +1538,7 @@ def parse_holder_count_history_format_b(
 
     lines = _section_lines(text or "", 5)
     if not lines or any("暂无数据" in ln for ln in lines):
-        return pd.DataFrame(columns=_HOLDER_COUNT_COLUMNS)
+        return []
 
     records: list[dict[str, Any]] = []
     i = 0
@@ -1583,7 +1591,7 @@ def parse_holder_count_history_format_b(
             continue
         i += 1
 
-    return pd.DataFrame(records, columns=_HOLDER_COUNT_COLUMNS)
+    return _records_with_columns(records, _HOLDER_COUNT_COLUMNS)
 
 
 _HOLDER_COUNT_COLUMNS = [
@@ -1637,7 +1645,7 @@ def _clean_major_holder_name(line: str) -> str:
 
 def parse_common_major_holder_stocks_format_b(
     text: str, *, symbol: str = "", stock_name: str = ""
-) -> pd.DataFrame:
+) -> list[dict[str, Any]]:
     """Parse Format B 段 6 同大股东个股."""
 
     raw_hash = _hash(text)
@@ -1652,7 +1660,7 @@ def parse_common_major_holder_stocks_format_b(
 
     lines = _section_lines(text or "", 6)
     if not lines or any("暂无数据" in ln for ln in lines):
-        return pd.DataFrame(columns=_COMMON_MAJOR_HOLDER_COLUMNS)
+        return []
 
     records: list[dict[str, Any]] = []
     major_holder_name: Optional[str] = None
@@ -1707,7 +1715,7 @@ def parse_common_major_holder_stocks_format_b(
             }
         )
 
-    return pd.DataFrame(records, columns=_COMMON_MAJOR_HOLDER_COLUMNS)
+    return _records_with_columns(records, _COMMON_MAJOR_HOLDER_COLUMNS)
 
 
 _COMMON_MAJOR_HOLDER_COLUMNS = [
@@ -1799,7 +1807,19 @@ def _is_fund_name_continuation(text: str) -> bool:
         return False
     return any(
         token in compact
-        for token in ("基金", "证券", "指数", "交易", "开放式", "联接", "股票", "混合", "债券", "ETF", "LOF")
+        for token in (
+            "基金",
+            "证券",
+            "指数",
+            "交易",
+            "开放式",
+            "联接",
+            "股票",
+            "混合",
+            "债券",
+            "ETF",
+            "LOF",
+        )
     )
 
 
@@ -1837,7 +1857,10 @@ def _parse_fund_holding_cells(
     if not fund_name or not any((shares_text, ratio_text, value_text)):
         return None
     shares, _ = _to_scaled_int_with_header_unit(shares_text, headers[shares_idx] if shares_idx < len(headers) else "")
-    market_value, _ = _to_scaled_int_with_header_unit(value_text, headers[value_idx] if value_idx < len(headers) else "")
+    market_value, _ = _to_scaled_int_with_header_unit(
+        value_text,
+        headers[value_idx] if value_idx < len(headers) else "",
+    )
     if shares is None or market_value is None:
         return None
     return {
@@ -1853,7 +1876,7 @@ def _parse_fund_holding_cells(
 
 def parse_fund_holdings_format_b(
     text: str, *, symbol: str = "", stock_name: str = ""
-) -> pd.DataFrame:
+) -> list[dict[str, Any]]:
     """Parse Format B 段 7 基金持股."""
 
     raw_hash = _hash(text)
@@ -1868,7 +1891,7 @@ def parse_fund_holdings_format_b(
 
     lines = _section_lines(text or "", 7)
     if not lines or any("暂无数据" in ln for ln in lines):
-        return pd.DataFrame(columns=_FUND_HOLDING_COLUMNS)
+        return []
 
     records: list[dict[str, Any]] = []
     i = 0
@@ -1951,7 +1974,7 @@ def parse_fund_holdings_format_b(
             continue
         i += 1
 
-    return pd.DataFrame(records, columns=_FUND_HOLDING_COLUMNS)
+    return _records_with_columns(records, _FUND_HOLDING_COLUMNS)
 
 
 _FUND_HOLDING_COLUMNS = [
@@ -2011,26 +2034,26 @@ def parse_research(
         "trades_b": (
             parse_shareholder_trades_format_b(text, symbol=symbol, stock_name=stock_name)
             if fmt == "b"
-            else pd.DataFrame(columns=_TRADE_B_COLUMNS)
+            else []
         ),
         "holders": holders,
         "periods": periods,
         "holder_count_history": (
             parse_holder_count_history_format_b(text, symbol=symbol, stock_name=stock_name)
             if fmt == "b"
-            else pd.DataFrame(columns=_HOLDER_COUNT_COLUMNS)
+            else []
         ),
         "common_major_holder_stocks": (
             parse_common_major_holder_stocks_format_b(
                 text, symbol=symbol, stock_name=stock_name
             )
             if fmt == "b"
-            else pd.DataFrame(columns=_COMMON_MAJOR_HOLDER_COLUMNS)
+            else []
         ),
         "fund_holdings": (
             parse_fund_holdings_format_b(text, symbol=symbol, stock_name=stock_name)
             if fmt == "b"
-            else pd.DataFrame(columns=_FUND_HOLDING_COLUMNS)
+            else []
         ),
     }
 
@@ -2038,11 +2061,8 @@ def parse_research(
 def _normalise_record_value(value: Any) -> Any:
     if value is None:
         return None
-    try:
-        if pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        pass
+    if isinstance(value, float) and math.isnan(value):
+        return None
     return value
 
 
@@ -2050,21 +2070,21 @@ def _normalise_record(record: dict[str, Any]) -> dict[str, Any]:
     return {key: _normalise_record_value(value) for key, value in record.items()}
 
 
-def _records_from_frame(frame: pd.DataFrame) -> list[dict[str, Any]]:
-    if frame is None or frame.empty:
+def _normalise_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not records:
         return []
-    return [_normalise_record(record) for record in frame.to_dict("records")]
+    return [_normalise_record(record) for record in records]
 
 
 def parse_holders_records(
     text: str, *, symbol: str = "", stock_name: str = ""
 ) -> dict[str, list[dict[str, Any]]]:
-    """Parse section-4 holder tables into records instead of DataFrames."""
+    """Parse section-4 holder tables into records."""
 
     holders, periods = parse_holders_auto(text, symbol=symbol, stock_name=stock_name)
     return {
-        "holders": _records_from_frame(holders),
-        "periods": _records_from_frame(periods),
+        "holders": _normalise_records(holders),
+        "periods": _normalise_records(periods),
     }
 
 
@@ -2076,8 +2096,8 @@ def parse_research_records(
     parsed = parse_research(text, symbol=symbol, stock_name=stock_name)
     records: dict[str, Any] = {}
     for key, value in parsed.items():
-        if isinstance(value, pd.DataFrame):
-            records[key] = _records_from_frame(value)
+        if isinstance(value, list):
+            records[key] = _normalise_records(value)
         elif isinstance(value, dict):
             records[key] = _normalise_record(value)
         else:
@@ -2369,7 +2389,7 @@ def _classify_format_b_change(raw: str) -> tuple[str, Optional[int]]:
 
 def parse_holders_format_b(
     text: str, *, symbol: str = "", stock_name: str = ""
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Parse F10 段 4 from the 通达信沪深京F10 (Format B) layout."""
 
     raw_hash = _hash(text)
@@ -2409,9 +2429,10 @@ def parse_holders_format_b(
             continue
         i += 1
 
-    holders_df = pd.DataFrame(holder_records, columns=_HOLDER_COLUMNS)
-    periods_df = pd.DataFrame(period_records, columns=_PERIOD_COLUMNS)
-    return holders_df, periods_df
+    return (
+        _records_with_columns(holder_records, _HOLDER_COLUMNS),
+        _records_with_columns(period_records, _PERIOD_COLUMNS),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2421,7 +2442,7 @@ def parse_holders_format_b(
 
 def parse_holders_auto(
     text: str, *, symbol: str = "", stock_name: str = ""
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Auto-detect F10 format and dispatch to the right parser.
 
     Format A (灵通V9.0 / 港澳资讯) and Format B (通达信沪深京F10) coexist in
@@ -2460,7 +2481,9 @@ def fetch_holders_text(client: Any, symbol: str) -> Optional[str]:
     )
 
 
-def fetch_holders(client: Any, symbol: str, *, stock_name: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
+def fetch_holders(
+    client: Any, symbol: str, *, stock_name: str = ""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Convenience wrapper: fetch + parse holders only (sections 4).
 
     Uses :func:`parse_holders_auto` to handle both Format A and Format B
@@ -2469,10 +2492,7 @@ def fetch_holders(client: Any, symbol: str, *, stock_name: str = "") -> tuple[pd
 
     text = fetch_holders_text(client, symbol)
     if not text:
-        return (
-            pd.DataFrame(columns=_HOLDER_COLUMNS),
-            pd.DataFrame(columns=_PERIOD_COLUMNS),
-        )
+        return ([], [])
     return parse_holders_auto(text, symbol=symbol, stock_name=stock_name)
 
 
@@ -2719,13 +2739,10 @@ class HolderFetcher:
 
     def fetch_holders(
         self, symbol: str, *, stock_name: str = ""
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         text = self.fetch_text(symbol)
         if not text:
-            return (
-                pd.DataFrame(columns=_HOLDER_COLUMNS),
-                pd.DataFrame(columns=_PERIOD_COLUMNS),
-            )
+            return ([], [])
         return parse_holders_auto(text, symbol=symbol, stock_name=stock_name)
 
     def fetch_research(

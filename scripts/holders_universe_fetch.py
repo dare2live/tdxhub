@@ -35,13 +35,15 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
 import duckdb
-import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, "/Users/dp/Documents/M/stock/tdxhub")
 from tdxhub.holders import HolderFetcher, parse_research, _hash  # noqa: E402
+from _holder_records_duckdb import insert_records_by_name, replace_or_insert_records  # noqa: E402
 
 
 @dataclass
@@ -68,10 +70,10 @@ class Bundle:
     """Per-stock output bundle accumulated for batch DB write."""
 
     raw_text: list[dict] = field(default_factory=list)
-    holders: list[pd.DataFrame] = field(default_factory=list)
-    periods: list[pd.DataFrame] = field(default_factory=list)
-    plans: list[pd.DataFrame] = field(default_factory=list)
-    trades: list[pd.DataFrame] = field(default_factory=list)
+    holders: list[list[dict[str, Any]]] = field(default_factory=list)
+    periods: list[list[dict[str, Any]]] = field(default_factory=list)
+    plans: list[list[dict[str, Any]]] = field(default_factory=list)
+    trades: list[list[dict[str, Any]]] = field(default_factory=list)
     controlling: list[dict] = field(default_factory=list)
     stats: list[dict] = field(default_factory=list)
 
@@ -192,56 +194,20 @@ def flush_bundle(path: str, bundle: Bundle, lock: threading.Lock) -> None:
     with lock:
         con = duckdb.connect(path)
         if bundle.raw_text:
-            con.register("rt_in", pd.DataFrame(bundle.raw_text))
-            con.execute("insert into raw_text select * from rt_in")
-            con.unregister("rt_in")
+            insert_records_by_name(con, "raw_text", "rt_in", bundle.raw_text)
         if bundle.holders:
-            df = pd.concat(bundle.holders, ignore_index=True)
-            if not df.empty:
-                con.register("h_in", df)
-                _replace_or_insert(con, "holders", "h_in")
-                con.unregister("h_in")
+            replace_or_insert_records(con, "holders", "h_in", [row for rows in bundle.holders for row in rows])
         if bundle.periods:
-            df = pd.concat(bundle.periods, ignore_index=True)
-            if not df.empty:
-                con.register("p_in", df)
-                _replace_or_insert(con, "periods", "p_in")
-                con.unregister("p_in")
+            replace_or_insert_records(con, "periods", "p_in", [row for rows in bundle.periods for row in rows])
         if bundle.plans:
-            df = pd.concat(bundle.plans, ignore_index=True)
-            if not df.empty:
-                con.register("pl_in", df)
-                _replace_or_insert(con, "plans", "pl_in")
-                con.unregister("pl_in")
+            replace_or_insert_records(con, "plans", "pl_in", [row for rows in bundle.plans for row in rows])
         if bundle.trades:
-            df = pd.concat(bundle.trades, ignore_index=True)
-            if not df.empty:
-                con.register("tr_in", df)
-                _replace_or_insert(con, "trades", "tr_in")
-                con.unregister("tr_in")
+            replace_or_insert_records(con, "trades", "tr_in", [row for rows in bundle.trades for row in rows])
         if bundle.controlling:
-            df = pd.DataFrame(bundle.controlling)
-            con.register("ctrl_in", df)
-            _replace_or_insert(con, "controlling", "ctrl_in")
-            con.unregister("ctrl_in")
+            replace_or_insert_records(con, "controlling", "ctrl_in", bundle.controlling)
         if bundle.stats:
-            con.register("st_in", pd.DataFrame(bundle.stats))
-            con.execute("insert into stats select * from st_in")
-            con.unregister("st_in")
+            insert_records_by_name(con, "stats", "st_in", bundle.stats)
         con.close()
-
-
-def _replace_or_insert(con, target: str, source: str) -> None:
-    """Insert into a typed-from-empty table; if columns differ, recreate."""
-
-    try:
-        con.execute(f"insert into {target} select * from {source}")
-    except Exception:
-        # First-time insert: target was created from a phantom row that
-        # only carries the stock_code column. Re-materialise with the
-        # source's full schema.
-        con.execute(f"drop table {target}")
-        con.execute(f"create table {target} as select * from {source}")
 
 
 def worker(
@@ -288,11 +254,11 @@ def worker(
             outcome.raw_len = len(text)
             outcome.raw_hash = _hash(text)
             outcome.server = str(fetcher.stats().get("active_server"))
-            outcome.n_periods_free = int((periods["holder_set"] == "free").sum())
-            outcome.n_periods_all = int((periods["holder_set"] == "all").sum())
+            outcome.n_periods_free = sum(1 for row in periods if row["holder_set"] == "free")
+            outcome.n_periods_all = sum(1 for row in periods if row["holder_set"] == "all")
             outcome.n_holders = len(holders)
-            outcome.n_exit_rows = int(holders["is_exit_row"].sum())
-            outcome.n_secondary = int(holders["is_secondary_class"].sum())
+            outcome.n_exit_rows = sum(1 for row in holders if row["is_exit_row"])
+            outcome.n_secondary = sum(1 for row in holders if row["is_secondary_class"])
             outcome.n_plans = len(plans)
             outcome.n_trades = len(trades)
             outcome.has_controlling = ctrl is not None

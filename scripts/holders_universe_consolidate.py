@@ -16,13 +16,15 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from typing import Optional
+from pathlib import Path
+from typing import Any
 
 import duckdb
-import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, "/Users/dp/Documents/M/stock/tdxhub")
 from tdxhub.holders import parse_research  # noqa: E402
+from _holder_records_duckdb import create_table_from_records  # noqa: E402
 
 
 def main() -> int:
@@ -62,10 +64,10 @@ def main() -> int:
     rows = con.execute(
         "select stock_code, stock_name, market, fetched_at, raw_len, raw_hash, server, raw_text from raw_text"
     ).fetchall()
-    holders_acc: list[pd.DataFrame] = []
-    periods_acc: list[pd.DataFrame] = []
-    plans_acc: list[pd.DataFrame] = []
-    trades_acc: list[pd.DataFrame] = []
+    holders_acc: list[list[dict[str, Any]]] = []
+    periods_acc: list[list[dict[str, Any]]] = []
+    plans_acc: list[list[dict[str, Any]]] = []
+    trades_acc: list[list[dict[str, Any]]] = []
     controlling_acc: list[dict] = []
     stats_acc: list[dict] = []
 
@@ -79,6 +81,10 @@ def main() -> int:
             ctrl = res["controlling"]
             plans = res["plans"]
             trades = res["trades"]
+            n_periods_free = sum(1 for row in periods if row["holder_set"] == "free")
+            n_periods_all = sum(1 for row in periods if row["holder_set"] == "all")
+            n_exit_rows = sum(1 for row in holders if row["is_exit_row"])
+            n_secondary = sum(1 for row in holders if row["is_secondary_class"])
             stats_acc.append(
                 {
                     "stock_code": code,
@@ -89,24 +95,24 @@ def main() -> int:
                     "raw_hash": raw_hash,
                     "server": server,
                     "fetched_at": str(fetched_at),
-                    "n_periods_free": int((periods["holder_set"] == "free").sum()),
-                    "n_periods_all": int((periods["holder_set"] == "all").sum()),
+                    "n_periods_free": n_periods_free,
+                    "n_periods_all": n_periods_all,
                     "n_holders": len(holders),
-                    "n_exit_rows": int(holders["is_exit_row"].sum()),
-                    "n_secondary": int(holders["is_secondary_class"].sum()),
+                    "n_exit_rows": n_exit_rows,
+                    "n_secondary": n_secondary,
                     "n_plans": len(plans),
                     "n_trades": len(trades),
                     "has_controlling": ctrl is not None,
                     "err": None,
                 }
             )
-            if not holders.empty:
+            if holders:
                 holders_acc.append(holders)
-            if not periods.empty:
+            if periods:
                 periods_acc.append(periods)
-            if not plans.empty:
+            if plans:
                 plans_acc.append(plans)
-            if not trades.empty:
+            if trades:
                 trades_acc.append(trades)
             if ctrl is not None:
                 controlling_acc.append(ctrl)
@@ -138,41 +144,27 @@ def main() -> int:
 
     print(f"step 3: write back tables")
     if holders_acc:
-        df = pd.concat(holders_acc, ignore_index=True)
-        con.register("h_in", df)
-        con.execute("create table holders as select * from h_in")
-        con.unregister("h_in")
-        print(f"  holders: {len(df)} rows")
+        rows = [row for records in holders_acc for row in records]
+        create_table_from_records(con, "holders", "h_in", rows)
+        print(f"  holders: {len(rows)} rows")
     if periods_acc:
-        df = pd.concat(periods_acc, ignore_index=True)
-        con.register("p_in", df)
-        con.execute("create table periods as select * from p_in")
-        con.unregister("p_in")
-        print(f"  periods: {len(df)} rows")
+        rows = [row for records in periods_acc for row in records]
+        create_table_from_records(con, "periods", "p_in", rows)
+        print(f"  periods: {len(rows)} rows")
     if plans_acc:
-        df = pd.concat(plans_acc, ignore_index=True)
-        con.register("pl_in", df)
-        con.execute("create table plans as select * from pl_in")
-        con.unregister("pl_in")
-        print(f"  plans: {len(df)} rows")
+        rows = [row for records in plans_acc for row in records]
+        create_table_from_records(con, "plans", "pl_in", rows)
+        print(f"  plans: {len(rows)} rows")
     if trades_acc:
-        df = pd.concat(trades_acc, ignore_index=True)
-        con.register("tr_in", df)
-        con.execute("create table trades as select * from tr_in")
-        con.unregister("tr_in")
-        print(f"  trades: {len(df)} rows")
+        rows = [row for records in trades_acc for row in records]
+        create_table_from_records(con, "trades", "tr_in", rows)
+        print(f"  trades: {len(rows)} rows")
     if controlling_acc:
-        df = pd.DataFrame(controlling_acc)
-        con.register("ctrl_in", df)
-        con.execute("create table controlling as select * from ctrl_in")
-        con.unregister("ctrl_in")
-        print(f"  controlling: {len(df)} rows")
+        create_table_from_records(con, "controlling", "ctrl_in", controlling_acc)
+        print(f"  controlling: {len(controlling_acc)} rows")
     if stats_acc:
-        df = pd.DataFrame(stats_acc)
-        con.register("st_in", df)
-        con.execute("create table stats as select * from st_in")
-        con.unregister("st_in")
-        print(f"  stats: {len(df)} rows")
+        create_table_from_records(con, "stats", "st_in", stats_acc)
+        print(f"  stats: {len(stats_acc)} rows")
 
     con.execute("drop table if exists raw_text_old")
     con.close()

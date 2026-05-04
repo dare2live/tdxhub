@@ -10,8 +10,8 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Any, Callable
 
-import pandas as pd
 import pytest
 
 from tdxhub.holders import (
@@ -80,40 +80,35 @@ def _load_b(label_code: str) -> tuple[str, str]:
     return text, label_code
 
 
-def _parse(label_code: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _parse(label_code: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     text, code = _load(label_code)
     return parse_holders(text, symbol=code)
 
 
+def _where(rows: list[dict[str, Any]], predicate: Callable[[dict[str, Any]], bool]) -> list[dict[str, Any]]:
+    return [row for row in rows if predicate(row)]
+
+
+def _col(rows: list[dict[str, Any]], key: str) -> list[Any]:
+    return [row.get(key) for row in rows]
+
+
+def _first(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    assert rows
+    return rows[0]
+
+
+def _groups(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> dict[tuple[Any, ...], list[dict[str, Any]]]:
+    grouped: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(tuple(row.get(key) for key in keys), []).append(row)
+    return grouped
+
+
 def test_returns_empty_with_stable_columns_for_empty_input():
     holders, periods = parse_holders("", symbol="600519")
-    assert list(holders.columns) == [
-        "stock_code",
-        "stock_name",
-        "market",
-        "report_date",
-        "holder_set",
-        "holder_rank",
-        "row_seq",
-        "holder_name",
-        "share_class",
-        "shares_text",
-        "shares_approx",
-        "shares_precision",
-        "hold_ratio",
-        "holder_type_or_nature",
-        "change_status",
-        "change_shares_text",
-        "change_shares_approx",
-        "is_exit_row",
-        "is_secondary_class",
-        "page_update_date",
-        "source",
-        "raw_hash",
-        "fetched_at",
-    ]
-    assert holders.empty
-    assert periods.empty
+    assert holders == []
+    assert periods == []
 
 
 def test_records_helpers_return_plain_records():
@@ -127,8 +122,6 @@ def test_records_helpers_return_plain_records():
     assert isinstance(research_records["holders"], list)
     assert isinstance(research_records["periods"], list)
     assert isinstance(research_records["plans"], list)
-    assert not isinstance(research_records["holders"], pd.DataFrame)
-    assert not isinstance(research_records["periods"], pd.DataFrame)
     assert research_records["page"]["stock_code"] == code
     assert research_records["holders"][0]["stock_code"] == code
     assert research_records["holders"][0]["source"] == "tdx_f10"
@@ -148,9 +141,9 @@ def test_records_helpers_return_empty_lists_for_missing_sections():
 def test_moutai_period_count_and_split():
     holders, periods = _parse("600519")
     # 600519 fixture covers four quarters (2026Q1, 2025Q4, 2025Q3, 2025Q2)
-    assert (periods["holder_set"] == "free").sum() == 4
-    assert (periods["holder_set"] == "all").sum() == 4
-    assert sorted(periods["report_date"].unique().tolist()) == [
+    assert _col(periods, "holder_set").count("free") == 4
+    assert _col(periods, "holder_set").count("all") == 4
+    assert sorted(set(_col(periods, "report_date"))) == [
         "2025-06-30",
         "2025-09-30",
         "2025-12-31",
@@ -160,13 +153,15 @@ def test_moutai_period_count_and_split():
 
 def test_moutai_2026q1_top_holder_exact():
     holders, _ = _parse("600519")
-    m = (
-        (holders["report_date"] == "2026-03-31")
-        & (holders["holder_set"] == "free")
-        & (~holders["is_exit_row"])
-        & (holders["holder_rank"] == 1)
+    row = _first(
+        _where(
+            holders,
+            lambda row: row["report_date"] == "2026-03-31"
+            and row["holder_set"] == "free"
+            and not row["is_exit_row"]
+            and row["holder_rank"] == 1,
+        )
     )
-    row = holders[m].iloc[0]
     assert row["holder_name"] == "中国贵州茅台酒厂（集团）有限责任公司"
     assert row["share_class"] == "A"
     assert row["shares_text"] == "6.8128亿"
@@ -180,39 +175,42 @@ def test_moutai_2026q1_top_holder_exact():
 
 def test_moutai_2026q1_exit_rows_match_text():
     holders, _ = _parse("600519")
-    m = (
-        (holders["report_date"] == "2026-03-31")
-        & (holders["holder_set"] == "free")
-        & holders["is_exit_row"]
+    rows = _where(
+        holders,
+        lambda row: row["report_date"] == "2026-03-31"
+        and row["holder_set"] == "free"
+        and row["is_exit_row"],
     )
-    rows = holders[m]
     assert len(rows) == 2
-    names = rows["holder_name"].tolist()
+    names = _col(rows, "holder_name")
     assert names == [
         "中国建设银行股份有限公司－易方达沪深300交易型开放式指数发起式证券投资基金",
         "中国工商银行股份有限公司－华夏沪深300交易型开放式指数证券投资基金",
     ]
-    assert (rows["change_status"] == "退出").all()
-    assert (rows["share_class"] == "A").all()
+    assert all(row["change_status"] == "退出" for row in rows)
+    assert all(row["share_class"] == "A" for row in rows)
 
 
 def test_zte_a_h_split_secondary_class():
     holders, _ = _parse("000063")
-    m = (
-        (holders["report_date"] == "2026-03-31")
-        & (holders["holder_set"] == "free")
-        & (~holders["is_exit_row"])
+    rows = sorted(
+        _where(
+            holders,
+            lambda row: row["report_date"] == "2026-03-31"
+            and row["holder_set"] == "free"
+            and not row["is_exit_row"],
+        ),
+        key=lambda row: row["row_seq"],
     )
-    rows = holders[m].sort_values("row_seq").reset_index(drop=True)
     # The first holder 中兴新通讯 has BOTH an A leg (rank 1, primary) and
     # an H leg (same rank, secondary). The secondary leg has empty change
     # so its status is 未知, not "退出".
-    primary = rows[rows["holder_name"] == "中兴新通讯有限公司"]
+    primary = _where(rows, lambda row: row["holder_name"] == "中兴新通讯有限公司")
     assert len(primary) == 2
-    classes = primary["share_class"].tolist()
+    classes = _col(primary, "share_class")
     assert "A" in classes and "H" in classes
-    a_leg = primary[primary["share_class"] == "A"].iloc[0]
-    h_leg = primary[primary["share_class"] == "H"].iloc[0]
+    a_leg = _first(_where(primary, lambda row: row["share_class"] == "A"))
+    h_leg = _first(_where(primary, lambda row: row["share_class"] == "H"))
     assert a_leg["is_secondary_class"] is False or a_leg["is_secondary_class"] == False  # noqa: E712
     assert bool(h_leg["is_secondary_class"]) is True
     assert a_leg["shares_approx"] == 958_940_000
@@ -222,21 +220,26 @@ def test_zte_a_h_split_secondary_class():
 
 def test_zte_h_only_holders_have_share_class_h():
     holders, _ = _parse("000063")
-    m = (
-        (holders["report_date"] == "2026-03-31")
-        & (holders["holder_set"] == "free")
-        & (~holders["is_exit_row"])
-        & (~holders["is_secondary_class"])
-        & (holders["holder_name"] == "香港中央结算代理人有限公司")
+    row = _first(
+        _where(
+            holders,
+            lambda row: row["report_date"] == "2026-03-31"
+            and row["holder_set"] == "free"
+            and not row["is_exit_row"]
+            and not row["is_secondary_class"]
+            and row["holder_name"] == "香港中央结算代理人有限公司",
+        )
     )
-    row = holders[m].iloc[0]
     assert row["share_class"] == "H"
 
 
 def test_change_status_classification_examples():
     holders, _ = _parse("600519")
-    m = (holders["report_date"] == "2026-03-31") & (holders["holder_set"] == "free")
-    statuses = holders[m]["change_status"].tolist()
+    rows = _where(
+        holders,
+        lambda row: row["report_date"] == "2026-03-31" and row["holder_set"] == "free",
+    )
+    statuses = _col(rows, "change_status")
     # The 2026Q1 free holders snapshot for Moutai contains 不变, 增持, 减持,
     # 新进, 退出 (across main + exit rows).
     assert {"不变", "增持", "减持", "新进", "退出"}.issubset(set(statuses))
@@ -244,9 +247,12 @@ def test_change_status_classification_examples():
 
 def test_period_stat_parsed_correctly_for_moutai():
     _, periods = _parse("600519")
-    p = periods[
-        (periods["report_date"] == "2026-03-31") & (periods["holder_set"] == "free")
-    ].iloc[0]
+    p = _first(
+        _where(
+            periods,
+            lambda row: row["report_date"] == "2026-03-31" and row["holder_set"] == "free",
+        )
+    )
     assert p["a_share_holder_count_text"] == "24.3159万"
     assert p["a_share_holder_count"] == 243_159
     assert p["cumulative_text"] == "8.5806亿"
@@ -262,12 +268,12 @@ def test_no_duplicate_rank_within_primary_holders_per_period():
     for fname in FIXTURE_DIR.iterdir():
         code = fname.stem.split("_")[-1]
         holders, _ = parse_holders(fname.read_text(encoding="utf-8"), symbol=code)
-        if holders.empty:
+        if not holders:
             continue
-        primary = holders[~holders["is_secondary_class"]]
-        groups = primary.groupby(["report_date", "holder_set", "is_exit_row"])
-        for key, sub in groups:
-            ranks = sub["holder_rank"].tolist()
+        primary = _where(holders, lambda row: not row["is_secondary_class"])
+        groups = _groups(primary, ("report_date", "holder_set", "is_exit_row"))
+        for key, sub in groups.items():
+            ranks = _col(sub, "holder_rank")
             assert len(ranks) == len(set(ranks)), f"duplicate ranks in {code} {key}: {ranks}"
 
 
@@ -280,13 +286,14 @@ def test_top10_count_within_normal_bounds():
     for fname in FIXTURE_DIR.iterdir():
         code = fname.stem.split("_")[-1]
         holders, _ = parse_holders(fname.read_text(encoding="utf-8"), symbol=code)
-        if holders.empty:
+        if not holders:
             continue
-        primary_main = holders[
-            (~holders["is_secondary_class"]) & (~holders["is_exit_row"])
-        ]
-        groups = primary_main.groupby(["report_date", "holder_set"])
-        for key, sub in groups:
+        primary_main = _where(
+            holders,
+            lambda row: not row["is_secondary_class"] and not row["is_exit_row"],
+        )
+        groups = _groups(primary_main, ("report_date", "holder_set"))
+        for key, sub in groups.items():
             n = len(sub)
             assert 1 <= n <= 10, f"{code} {key}: unexpected holder count {n}"
 
@@ -295,41 +302,42 @@ def test_market_inference_from_symbol():
     holders_sh, _ = _parse("600519")
     holders_sz, _ = _parse("000001")
     holders_star, _ = _parse("688318")
-    assert (holders_sh["market"] == "SH").all()
-    assert (holders_sz["market"] == "SZ").all()
-    assert (holders_star["market"] == "SH").all()
+    assert all(row["market"] == "SH" for row in holders_sh)
+    assert all(row["market"] == "SZ" for row in holders_sz)
+    assert all(row["market"] == "SH" for row in holders_star)
 
 
 def test_continuation_rows_join_long_names():
     """Long fund names that wrap should be joined into a single holder_name."""
 
     holders, _ = _parse("600519")
-    m = (
-        (holders["holder_name"]
-         == "国丰兴华（北京）私募基金管理有限公司－鸿鹄志远（上海）私募投资基金有限公司")
+    wrapped_holder = "国丰兴华（北京）私募基金管理有限公司－鸿鹄志远（上海）私募投资基金有限公司"
+    assert any(
+        row["holder_name"] == wrapped_holder
+        for row in holders
     )
-    assert m.sum() >= 1
 
 
 def test_raw_hash_stable_for_same_text():
     text = (FIXTURE_DIR / "sh_main_moutai_600519.txt").read_text(encoding="utf-8")
     h1, p1 = parse_holders(text, symbol="600519")
     h2, p2 = parse_holders(text, symbol="600519")
-    assert h1["raw_hash"].iloc[0] == h2["raw_hash"].iloc[0]
+    assert h1[0]["raw_hash"] == h2[0]["raw_hash"]
 
 
 def test_exit_rows_present_for_dual_listed_citic():
     holders, _ = _parse("600030")
-    exits_2026q1_free = holders[
-        (holders["report_date"] == "2026-03-31")
-        & (holders["holder_set"] == "free")
-        & holders["is_exit_row"]
-    ]
+    exits_2026q1_free = _where(
+        holders,
+        lambda row: row["report_date"] == "2026-03-31"
+        and row["holder_set"] == "free"
+        and row["is_exit_row"],
+    )
     assert len(exits_2026q1_free) == 2
-    assert set(exits_2026q1_free["holder_name"].tolist()) == {
+    assert set(_col(exits_2026q1_free, "holder_name")) == {
         "中国工商银行－上证50交易型开放式指数证券投资基金",
         "大成基金－农业银行－大成中证金融资动产管理计划".replace("动产", "资"),  # safety
-    } or set(exits_2026q1_free["holder_name"].tolist()) == {
+    } or set(_col(exits_2026q1_free, "holder_name")) == {
         "中国工商银行－上证50交易型开放式指数证券投资基金",
         "大成基金－农业银行－大成中证金融资产管理计划",
     }
@@ -427,14 +435,14 @@ def test_controlling_shareholder_auto_dispatches_format_b():
 def test_shareholder_plans_empty_when_暂无数据():
     text, code = _load("000063")
     df = parse_shareholder_plans(text, symbol=code)
-    assert df.empty
+    assert df == []
 
 
 def test_shareholder_plans_moutai_single_plan():
     text, code = _load("600519")
     df = parse_shareholder_plans(text, symbol=code)
     assert len(df) == 1
-    p = df.iloc[0]
+    p = df[0]
     assert p["announce_date"] == "2025-08-30"
     assert p["direction"] == "增持计划"
     assert p["progress"] == "实施"
@@ -452,13 +460,13 @@ def test_shareholder_plans_jiangbolong_multi_plans():
     df = parse_shareholder_plans(text, symbol=code)
     assert len(df) == 5
     # The most recent plan
-    p = df.iloc[0]
+    p = df[0]
     assert p["announce_date"] == "2026-03-20"
     assert p["direction"] == "减持计划"
     assert p["target_shares"] == 2_422_986
     assert p["target_ratio"] == pytest.approx(0.5781, rel=1e-4)
     # All plans are 减持 in this fixture
-    assert (df["direction"] == "减持计划").all()
+    assert all(row["direction"] == "减持计划" for row in df)
 
 
 # ---------------------------------------------------------------------------
@@ -469,22 +477,22 @@ def test_shareholder_plans_jiangbolong_multi_plans():
 def test_shareholder_trades_empty_when_暂无数据():
     text, code = _load("600030")
     df = parse_shareholder_trades(text, symbol=code)
-    assert df.empty
+    assert df == []
 
 
 def test_shareholder_trades_moutai_two_trades():
     text, code = _load("600519")
     df = parse_shareholder_trades(text, symbol=code)
     assert len(df) == 2
-    assert df["change_date"].tolist() == ["2025-12-26", "2025-09-01"]
-    assert all(
-        df["holder_name"] == "中国贵州茅台酒厂（集团）有限责任公司"
-    ), "wrap continuation rows must be joined"
-    assert df.iloc[0]["shares_before"] == 679_280_000
-    assert df.iloc[0]["shares_after"] == 681_280_000
-    assert df.iloc[0]["shares_change"] == 2_003_538
-    assert df.iloc[0]["change_type"] == "二级市场买入"
-    assert df.iloc[0]["ratio_after"] == pytest.approx(54.4038)
+    assert _col(df, "change_date") == ["2025-12-26", "2025-09-01"]
+    assert all(row["holder_name"] == "中国贵州茅台酒厂（集团）有限责任公司" for row in df), (
+        "wrap continuation rows must be joined"
+    )
+    assert df[0]["shares_before"] == 679_280_000
+    assert df[0]["shares_after"] == 681_280_000
+    assert df[0]["shares_change"] == 2_003_538
+    assert df[0]["change_type"] == "二级市场买入"
+    assert df[0]["ratio_after"] == pytest.approx(54.4038)
 
 
 def test_shareholder_trades_jiangbolong_long_wrapped_names():
@@ -492,9 +500,9 @@ def test_shareholder_trades_jiangbolong_long_wrapped_names():
     df = parse_shareholder_trades(text, symbol=code)
     assert len(df) >= 17
     # Confirm wrap continuation across many rows produced a single record
-    long_names = df[df["holder_name"].str.contains("龙熹一号")]
+    long_names = _where(df, lambda row: "龙熹一号" in row["holder_name"])
     assert len(long_names) >= 1
-    first = long_names.iloc[0]["holder_name"]
+    first = long_names[0]["holder_name"]
     # Joined name should be much longer than any single visual row
     assert len(first) > 30
 
@@ -504,16 +512,16 @@ def test_shareholder_trades_signed_change_for_decrease():
 
     text, code = _load("301308")
     df = parse_shareholder_trades(text, symbol=code)
-    sells = df[df["change_type"] == "二级市场卖出"]
+    sells = _where(df, lambda row: row["change_type"] == "二级市场卖出")
     assert len(sells) > 0
-    assert (sells["shares_change"] < 0).all()
+    assert all(row["shares_change"] < 0 for row in sells)
 
 
 def test_format_b_shareholder_trades_parse_period_price_and_method():
     text, code = _load_b("600519")
     df = parse_shareholder_trades_format_b(text, symbol=code)
     assert len(df) == 3
-    first = df.iloc[0]
+    first = df[0]
     assert first["change_period_text"] == "2025.10.21-2025.12.26"
     assert first["change_start_date"] == "2025-10-21"
     assert first["change_end_date"] == "2025-12-26"
@@ -529,19 +537,20 @@ def test_format_b_shareholder_trades_join_wrapped_names_and_signed_decrease():
     text, code = _load_b("300750")
     df = parse_shareholder_trades_format_b(text, symbol=code)
     assert len(df) > 40
-    first = df.iloc[0]
+    first = df[0]
     assert first["holder_name"] == "宁波联合创新新能源投资管理合伙企业（有限合伙）"
     assert first["shares_change"] == -58_000_000
     assert first["change_method"] == "询价转让"
-    assert (df[df["holder_name"].str.contains("Mirae Asset", regex=False)]["holder_name"]
-            .iloc[0].endswith("Co.Ltd"))
+    assert _first(_where(df, lambda row: "Mirae Asset" in row["holder_name"]))[
+        "holder_name"
+    ].endswith("Co.Ltd")
 
 
 def test_format_b_holder_count_history_parses_latest_row():
     text, code = _load_b("600519")
     df = parse_holder_count_history_format_b(text, symbol=code)
     assert len(df) >= 60
-    row = df.iloc[0]
+    row = df[0]
     assert row["report_date"] == "2026-03-31"
     assert row["holder_count"] == 243_159
     assert row["holder_count_change"] == -12_733
@@ -562,15 +571,15 @@ def test_date_sanity_sets_future_artifacts_to_none():
 """
     df = parse_holder_count_history_format_b(text, symbol="600519")
     assert len(df) == 1
-    assert df.iloc[0]["report_date"] is None
-    assert df.iloc[0]["report_date_text"] == "2232-02-26"
+    assert df[0]["report_date"] is None
+    assert df[0]["report_date_text"] == "2232-02-26"
 
 
 def test_format_b_shareholder_plans_parse_wrapped_rows_and_amount_bounds():
     text, code = _load_b("600519")
     df = parse_shareholder_plans_format_b(text, symbol=code)
     assert len(df) == 1
-    row = df.iloc[0]
+    row = df[0]
     assert row["announce_date"] == "2025-12-30"
     assert row["first_announce_date"] == "2025-08-30"
     assert row["subject"] == "中国贵州茅台酒厂（集团）有限责任公司"
@@ -587,18 +596,21 @@ def test_format_b_shareholder_plans_filters_empty_shell_rows():
     text, code = _load_b("300750")
     df = parse_shareholder_plans(text, symbol=code)
     assert len(df) == 2
-    assert df.iloc[0]["subject"] == "宁波联合创新新能源投资管理合伙企业（有限合伙）"
-    assert df.iloc[0]["target_shares"] == 58_000_000
-    assert df.iloc[0]["target_ratio"] == pytest.approx(1.27)
-    assert df.iloc[1]["subject"] == "黄世霖"
-    assert (df[["subject", "direction", "progress"]].fillna("").agg("".join, axis=1) != "").all()
+    assert df[0]["subject"] == "宁波联合创新新能源投资管理合伙企业（有限合伙）"
+    assert df[0]["target_shares"] == 58_000_000
+    assert df[0]["target_ratio"] == pytest.approx(1.27)
+    assert df[1]["subject"] == "黄世霖"
+    assert all(
+        "".join(str(row.get(key) or "") for key in ("subject", "direction", "progress"))
+        for row in df
+    )
 
 
 def test_format_b_common_major_holder_stocks_parse_real_fixture():
     text, code = _load_b("601398")
     df = parse_common_major_holder_stocks_format_b(text, symbol=code)
     assert len(df) == 31
-    first = df.iloc[0]
+    first = df[0]
     assert first["report_date"] == "2025-12-31"
     assert first["report_date_text"] == "2025-12-31"
     assert first["major_holder_name"] == "中央汇金投资有限责任公司"
@@ -608,7 +620,7 @@ def test_format_b_common_major_holder_stocks_parse_real_fixture():
     assert first["hold_ratio"] == pytest.approx(58.59)
     assert first["change_shares"] == 0
     assert first["net_profit_parent"] == 243_021_000_000
-    changed = df[df["peer_stock_code"] == "600028"].iloc[0]
+    changed = _first(_where(df, lambda row: row["peer_stock_code"] == "600028"))
     assert changed["major_holder_name"] == "香港中央结算(代理人)有限公司"
     assert changed["change_text"] == "-1.63亿"
     assert changed["change_shares"] == -163_000_000
@@ -624,14 +636,14 @@ def test_format_b_common_major_holder_future_date_preserves_text():
 """
     df = parse_common_major_holder_stocks_format_b(text, symbol="601398")
     assert len(df) == 1
-    assert df.iloc[0]["report_date"] is None
-    assert df.iloc[0]["report_date_text"] == "2232-02-26"
+    assert df[0]["report_date"] is None
+    assert df[0]["report_date_text"] == "2232-02-26"
 
 
 def test_format_b_fund_holdings_parse_box_table_and_wrapped_name():
     df = parse_fund_holdings_format_b(FORMAT_B_FUND_HOLDING_TEXT, symbol="600519")
     assert len(df) == 2
-    first = df.iloc[0]
+    first = df[0]
     assert first["report_date"] == "2025-12-31"
     assert first["fund_name"] == "中国工商银行股份有限公司－华泰柏瑞沪深300交易型开放式指数证券投资基金"
     assert first["shares_text"] == "456.64万"
@@ -644,8 +656,8 @@ def test_format_b_fund_holdings_parse_box_table_and_wrapped_name():
 def test_format_b_fund_holdings_header_units_and_footer_disclaimer():
     df = parse_fund_holdings_format_b(FORMAT_B_FUND_HOLDING_HEADER_UNIT_TEXT, symbol="688809")
     assert len(df) == 2
-    first = df.iloc[0]
-    second = df.iloc[1]
+    first = df[0]
+    second = df[1]
     assert first["fund_name"] == "华夏中证1000交易型开放式指数证券投资基金"
     assert first["shares_text"] == "0.97"
     assert first["shares"] == 9_700
@@ -655,23 +667,20 @@ def test_format_b_fund_holdings_header_units_and_footer_disclaimer():
     assert second["shares"] == 4_566_400
     assert second["market_value_text"] == "66.22亿"
     assert second["market_value"] == 6_622_000_000
-    assert not df["fund_name"].str.contains("真实性|投资有风险", regex=True).any()
+    assert not any(re.search("真实性|投资有风险", row["fund_name"]) for row in df)
 
 
 def test_format_b_fund_holdings_footer_only_is_not_record():
     df = parse_fund_holdings_format_b(FORMAT_B_FUND_HOLDING_FOOTER_ONLY_TEXT, symbol="688809")
-    assert df.empty
-    assert "fund_name" in df.columns
+    assert df == []
 
 
 def test_format_b_extra_sections_empty_with_stable_columns():
     text, code = _load_b("600519")
     common = parse_common_major_holder_stocks_format_b(text, symbol=code)
     funds = parse_fund_holdings_format_b(text, symbol=code)
-    assert common.empty
-    assert funds.empty
-    assert "major_holder_name" in common.columns
-    assert "fund_name" in funds.columns
+    assert common == []
+    assert funds == []
 
 
 # ---------------------------------------------------------------------------
@@ -699,9 +708,9 @@ def test_parse_research_returns_all_sections():
     assert res["controlling"]["primary_shareholder_name"] == "中国贵州茅台酒厂(集团)有限责任公司"
     assert len(res["plans"]) == 1
     assert len(res["trades"]) == 2
-    assert (res["periods"]["holder_set"] == "free").sum() == 4
-    assert res["trades_b"].empty
-    assert res["holder_count_history"].empty
+    assert _col(res["periods"], "holder_set").count("free") == 4
+    assert res["trades_b"] == []
+    assert res["holder_count_history"] == []
 
 
 def test_parse_research_format_b_adds_rich_section_keys():
@@ -709,4 +718,4 @@ def test_parse_research_format_b_adds_rich_section_keys():
     res = parse_research(text, symbol=code)
     assert len(res["holder_count_history"]) > 0
     assert len(res["common_major_holder_stocks"]) == 31
-    assert res["fund_holdings"].empty
+    assert res["fund_holdings"] == []
