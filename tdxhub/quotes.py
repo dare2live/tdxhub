@@ -34,6 +34,34 @@ SymbolInput = Union[str, list[str]]
 MarketSymbol = tuple[int, str]
 
 
+def _normalise_record_value(value: Any) -> Any:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if hasattr(value, 'isoformat'):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    return value
+
+
+def _records_from_frame(frame: Optional[pd.DataFrame], *, index_field: str = '') -> list[dict[str, Any]]:
+    if frame is None or frame.empty:
+        return []
+    data = frame.copy()
+    if index_field and index_field not in data.columns and not isinstance(data.index, pd.RangeIndex):
+        data[index_field] = list(data.index)
+    records = []
+    for record in data.to_dict('records'):
+        records.append({key: _normalise_record_value(value) for key, value in record.items()})
+    return records
+
+
 class Quotes(object):
     @staticmethod
     def factory(market: str = 'std', **kwargs: Any) -> 'BaseQuotes':
@@ -118,6 +146,10 @@ class BaseQuotes(object):
             return True
 
         return False
+
+    @staticmethod
+    def to_records(frame: Optional[pd.DataFrame], *, index_field: str = '') -> list[dict[str, Any]]:
+        return _records_from_frame(frame, index_field=index_field)
 
     def pool(self) -> None:
         ...
@@ -558,6 +590,77 @@ class StdQuotes(BaseQuotes):
 
         result = self.client.get_and_parse_block_info(tofile)
         return to_data(result, **kwargs)
+
+    # -- records-first wrappers --------------------------------------------
+
+    def quotes_records(self, symbol: Optional[SymbolInput] = None, **kwargs: Any) -> list[dict[str, Any]]:
+        return self.to_records(self.quotes(symbol=symbol, **kwargs))
+
+    def bars_records(
+        self,
+        symbol: str = '000001',
+        frequency: Union[int, str] = 9,
+        start: int = 0,
+        offset: int = 800,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        return self.to_records(
+            self.bars(symbol=symbol, frequency=frequency, start=start, offset=offset, **kwargs),
+            index_field='datetime',
+        )
+
+    def stocks_records(self, market: int = MARKET_SH) -> list[dict[str, Any]]:
+        return self.to_records(self.stocks(market=market))
+
+    def stock_all_records(self) -> list[dict[str, Any]]:
+        return self.to_records(self.stock_all())
+
+    def index_bars_records(
+        self,
+        symbol: str = '000001',
+        frequency: Union[int, str] = 9,
+        start: int = 0,
+        offset: int = 800,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        return self.to_records(
+            self.index_bars(symbol=symbol, frequency=frequency, start=start, offset=offset, **kwargs),
+            index_field='datetime',
+        )
+
+    def minute_records(self, symbol: Optional[str] = None, **kwargs: Any) -> list[dict[str, Any]]:
+        return self.to_records(self.minute(symbol=symbol, **kwargs))
+
+    def minutes_records(
+        self, symbol: Optional[str] = None, date: str = '20191023', **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        return self.to_records(self.minutes(symbol=symbol, date=date, **kwargs))
+
+    def transaction_records(
+        self, symbol: str = '', start: int = 0, offset: int = 800, **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        return self.to_records(self.transaction(symbol=symbol, start=start, offset=offset, **kwargs))
+
+    def transactions_records(
+        self,
+        symbol: str = '',
+        start: int = 0,
+        offset: int = 800,
+        date: str = '20170209',
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        return self.to_records(
+            self.transactions(symbol=symbol, start=start, offset=offset, date=date, **kwargs)
+        )
+
+    def xdxr_records(self, symbol: str = '', **kwargs: Any) -> list[dict[str, Any]]:
+        return self.to_records(self.xdxr(symbol=symbol, **kwargs))
+
+    def finance_records(self, symbol: str = '000001', **kwargs: Any) -> list[dict[str, Any]]:
+        return self.to_records(self.finance(symbol=symbol, **kwargs))
+
+    def block_records(self, tofile: str = 'block.dat', **kwargs: Any) -> list[dict[str, Any]]:
+        return self.to_records(self.block(tofile=tofile, **kwargs))
 
 
 class ExtQuotes(BaseQuotes):

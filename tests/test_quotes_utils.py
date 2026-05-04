@@ -4,6 +4,7 @@ import pytest
 from tdxhub.quotes import BaseQuotes
 from tdxhub.quotes import check_empty
 from tdxhub.quotes import ExtQuotes
+from tdxhub.quotes import StdQuotes
 from tdxhub.quotes import valid_server
 
 
@@ -67,3 +68,34 @@ def test_ext_quotes_validate_accepts_market_prefix_in_symbol():
 def test_ext_quotes_validate_rejects_missing_market():
     with pytest.raises(ValueError):
         ExtQuotes.validate(None, 'IMCI')
+
+
+def test_std_quotes_records_wrappers_return_plain_records(monkeypatch):
+    quote = StdQuotes.__new__(StdQuotes)
+    frame = pd.DataFrame(
+        [{"open": 1.0, "close": float("nan")}],
+        index=pd.to_datetime(["2026-05-04"]),
+    )
+    monkeypatch.setattr(
+        StdQuotes,
+        "bars",
+        lambda self, **kwargs: frame,
+    )
+
+    records = quote.bars_records(symbol="000001")
+
+    assert records == [{"open": 1.0, "close": None, "datetime": "2026-05-04T00:00:00"}]
+
+
+def test_std_quotes_records_wrappers_keep_existing_datetime(monkeypatch):
+    quote = StdQuotes.__new__(StdQuotes)
+    frame = pd.DataFrame([{"datetime": "2026-05-04", "open": 1.0}])
+    monkeypatch.setattr(
+        StdQuotes,
+        "index_bars",
+        lambda self, **kwargs: frame,
+    )
+
+    records = quote.index_bars_records(symbol="000001")
+
+    assert records == [{"datetime": "2026-05-04", "open": 1.0}]
