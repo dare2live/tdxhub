@@ -20,7 +20,7 @@ Usage::
 
     python scripts/holders_universe_fetch.py [--workers 4]
         [--out /tmp/tdxhub_universe.duckdb]
-        [--source-db /Users/dp/Documents/M/stock/chunky-monkey-v2/data/smartmoney.duckdb]
+        [--source-db /Users/dp/Documents/M/stock/chunkymonkey/data/smartmoney.duckdb]
         [--limit N]   # cap stocks for a partial run
         [--symbols 600519,000001,...]  # explicit list overrides the universe
         [--resume]    # skip stocks already present in the output DB
@@ -314,7 +314,7 @@ def main() -> int:
     p.add_argument("--out", default="/tmp/tdxhub_universe.duckdb")
     p.add_argument(
         "--source-db",
-        default="/Users/dp/Documents/M/stock/chunky-monkey-v2/data/smartmoney.duckdb",
+        default="/Users/dp/Documents/M/stock/chunkymonkey/data/smartmoney.duckdb",
     )
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--symbols", default="")
