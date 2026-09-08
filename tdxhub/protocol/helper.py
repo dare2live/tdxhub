@@ -50,9 +50,26 @@ def get_price(data, pos):
 def get_volume(vol):
     """
     获取交易量
-    :param vol:
-    :return:
+    通达信把成交量/成交额编成一个私有浮点: 1 字节指数(乘 2 后偏移) + 3 字节尾数,
+    外加一个**隐含前导 1**(下面的 ``dbl_xmm6`` 项)。本函数是对客户端反汇编的逐字转写
+    (变量名 dbl_xmm6 / dw_ecx 等即 x86 寄存器名), 沿 tdxpy -> mootdx -> 本仓 vendor 而来。
+
+    零值必须单独处理: 字段全零表示"这根 bar 没有成交"(停牌/无量), 但隐含前导 1 那一项
+    在 logpoint=0 时算出 ``2 ** -127`` 并被无条件累加, 于是 ``get_volume(0)`` 会返回
+    5.877471754111438e-39 而不是 0.0。这个值物理上不可能(A 股最小成交 1 手), 却是有限
+    正数, 会一路穿过下游的 ``float()`` 转换落库, 再被"非零"过滤条件静默滤掉 —— 与
+    "停牌日整行缺失"完全同形, 无法区分。
+
+    2026-09-08 实测发现: 消费方 chunkymonkey 的 canonical_nominal_ohlcv_daily 里有 6 行
+    (2026-08-31 的停牌股) vol=2**-127、amount=2**-127/1000, 即本函数对全零输入的输出。
+    回归锁见 tests/test_protocol_helper_volume.py。
+
+    :param vol: 4 字节小端整数原样
+    :return: 解码后的量; 输入为 0 时返回 0.0
     """
+    if vol == 0:
+        return 0.0
+
     logpoint = vol >> (8 * 3)
 
     hleax = (vol >> (8 * 2)) & 0xFF  # [2]
